@@ -60,17 +60,23 @@
 -dontwarn org.openjsse.net.ssl.OpenJSSE
 -dontwarn org.slf4j.impl.StaticLoggerBinder
 
-## Rules for NewPipeExtractor
--keep class org.schabi.newpipe.extractor.services.youtube.protos.** { *; }
--keep class org.schabi.newpipe.extractor.timeago.patterns.** { *; }
--keep class org.mozilla.javascript.** { *; }
--keep class org.mozilla.javascript.engine.** { *; }
--dontwarn org.mozilla.javascript.JavaToJSONConverters
--dontwarn org.mozilla.javascript.tools.**
--keep class javax.script.** { *; }
--dontwarn javax.script.**
--keep class jdk.dynalink.** { *; }
--dontwarn jdk.dynalink.**
+## Rules for MetrolistExtractor (PipePipe)
+-keep class project.pipepipe.extractor.** { *; }
+-keep class project.pipepipe.shared.** { *; }
+
+## Netty rules
+-dontwarn io.netty.**
+-dontwarn org.apache.log4j.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn reactor.blockhound.**
+-dontwarn io.micrometer.**
+-dontwarn javax.enterprise.**
+
+## Lettuce (Redis client) rules
+-dontwarn io.lettuce.core.support.LettuceCdiExtension
+
+## Reactor rules
+-dontwarn reactor.util.context.ReactorContextAccessor
 
 ## Logging (does not affect Timber)
 -assumenosideeffects class android.util.Log {
