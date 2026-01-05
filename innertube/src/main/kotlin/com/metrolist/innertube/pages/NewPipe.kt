@@ -10,6 +10,7 @@ import io.ktor.http.URLBuilder
 import io.ktor.http.parseQueryString
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -29,91 +30,53 @@ object NewPipeUtils {
         }
     }
 
-    // Regex patterns from the old working library
-    private val IFRAME_RES_JS_BASE_PLAYER_HASH_PATTERN = Regex("player\\\\/([a-z0-9]{8})\\\\/")
-    private val EMBEDDED_WATCH_PAGE_JS_BASE_PLAYER_URL_PATTERN = Regex("\"jsUrl\":\"(/s/player/[A-Za-z0-9]+/player_ias\\.vflset/[A-Za-z_-]+/base\\.js)\"")
-    private val SIGNATURE_TIMESTAMP_PATTERN = Regex("signatureTimestamp[=:](\\d+)")
-
-    private var cachedPlayerId: String? = null
+    private var cachedPlayer: String? = null
     private var cachedSignatureTimestamp: Int? = null
 
     /**
-     * Extract player ID (8-char hash) from YouTube - same method as the old working library
+     * Fetch player info from PipePipe API - same as MetrolistExtractor
      */
-    private suspend fun extractPlayerId(videoId: String): String {
-        // Try IFrame resource first
-        try {
-            val iframeContent = httpClient.get("https://www.youtube.com/iframe_api") {
-                header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+    private suspend fun fetchPlayerInfo(): Pair<String, Int>? {
+        return try {
+            val response = httpClient.get("https://api.pipepipe.dev/decoder/latest-player") {
+                header("User-Agent", "PipePipe/5.0.0")
             }.bodyAsText()
             
-            val match = IFRAME_RES_JS_BASE_PLAYER_HASH_PATTERN.find(iframeContent)
-            if (match != null) {
-                return match.groupValues[1]
-            }
-        } catch (e: Exception) {
-            // Fall through to embed page
-        }
-
-        // Fallback to embed page
-        try {
-            val embedContent = httpClient.get("https://www.youtube.com/embed/$videoId") {
-                header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            }.bodyAsText()
+            val jsonObj = json.parseToJsonElement(response).jsonObject
+            val player = jsonObj["player"]?.jsonPrimitive?.content
+            val signatureTimestamp = jsonObj["signatureTimestamp"]?.jsonPrimitive?.int
             
-            val jsUrlMatch = EMBEDDED_WATCH_PAGE_JS_BASE_PLAYER_URL_PATTERN.find(embedContent)
-            if (jsUrlMatch != null) {
-                val jsUrl = jsUrlMatch.groupValues[1].replace("\\/", "/")
-                val hashMatch = IFRAME_RES_JS_BASE_PLAYER_HASH_PATTERN.find(jsUrl)
-                if (hashMatch != null) {
-                    return hashMatch.groupValues[1]
-                }
-            }
+            if (player != null && signatureTimestamp != null) {
+                player to signatureTimestamp
+            } else null
         } catch (e: Exception) {
-            // Fall through
+            e.printStackTrace()
+            null
         }
-
-        throw Exception("Could not extract player ID")
     }
 
-    /**
-     * Extract signature timestamp from the JavaScript player file
-     */
-    private suspend fun extractSignatureTimestamp(playerId: String): Int {
-        val playerUrl = "https://www.youtube.com/s/player/$playerId/player_ias.vflset/en_GB/base.js"
-        val playerCode = httpClient.get(playerUrl) {
-            header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        }.bodyAsText()
-        
-        val match = SIGNATURE_TIMESTAMP_PATTERN.find(playerCode)
-            ?: throw Exception("Could not find signature timestamp")
-        
-        return match.groupValues[1].toInt()
-    }
-
-    private fun ensurePlayerInfo(videoId: String) {
-        if (cachedPlayerId == null || cachedSignatureTimestamp == null) {
-            runBlocking {
-                cachedPlayerId = extractPlayerId(videoId)
-                cachedSignatureTimestamp = extractSignatureTimestamp(cachedPlayerId!!)
-            }
+    private fun ensurePlayerInfo() {
+        if (cachedPlayer == null || cachedSignatureTimestamp == null) {
+            val playerInfo = runBlocking { fetchPlayerInfo() }
+            cachedPlayer = playerInfo?.first
+            cachedSignatureTimestamp = playerInfo?.second
         }
     }
 
     fun getSignatureTimestamp(videoId: String): Result<Int> = runCatching {
-        ensurePlayerInfo(videoId)
+        ensurePlayerInfo()
         cachedSignatureTimestamp ?: throw Exception("Could not get signature timestamp")
     }
 
     /**
      * Decode a single parameter using the PipePipe API
      */
-    private suspend fun decode(playerId: String, paramType: String, value: String): String {
+    private suspend fun decode(player: String, paramType: String, value: String): String {
         val encodedValue = URLEncoder.encode(value, "UTF-8")
-        val apiUrl = "https://api.pipepipe.dev/decoder/decode?player=$playerId&$paramType=$encodedValue"
+        val apiUrl = "https://api.pipepipe.dev/decoder/decode?player=$player&$paramType=$encodedValue"
         
         val response = httpClient.get(apiUrl) {
-            header("User-Agent", "PipePipe/4.7.0")
+            header("User-Agent", "PipePipe/5.0.0")
         }.bodyAsText()
 
         val jsonObj = json.parseToJsonElement(response).jsonObject
@@ -143,27 +106,27 @@ object NewPipeUtils {
     /**
      * Decode signature using the API
      */
-    private suspend fun decodeSignature(playerId: String, signature: String): String {
-        return decode(playerId, "sig", signature)
+    private suspend fun decodeSignature(player: String, signature: String): String {
+        return decode(player, "sig", signature)
     }
 
     /**
      * Decode throttling parameter (n) using the API
      */
-    private suspend fun decodeThrottlingParameter(playerId: String, nParam: String): String {
-        return decode(playerId, "n", nParam)
+    private suspend fun decodeThrottlingParameter(player: String, nParam: String): String {
+        return decode(player, "n", nParam)
     }
 
     fun getStreamUrl(format: PlayerResponse.StreamingData.Format, videoId: String): Result<String> =
         runCatching {
-            ensurePlayerInfo(videoId)
-            val playerId = cachedPlayerId ?: throw Exception("Could not get player ID")
+            ensurePlayerInfo()
+            val player = cachedPlayer ?: throw Exception("Could not get player info")
 
             val url = format.url
             if (url != null) {
                 // Direct URL - just need to deobfuscate throttling parameter
                 return@runCatching runBlocking {
-                    getUrlWithThrottlingParameterDeobfuscated(playerId, url)
+                    getUrlWithThrottlingParameterDeobfuscated(player, url)
                 }
             }
 
@@ -178,7 +141,7 @@ object NewPipeUtils {
 
                 return@runCatching runBlocking {
                     // Decode signature
-                    val decodedSignature = decodeSignature(playerId, obfuscatedSignature)
+                    val decodedSignature = decodeSignature(player, obfuscatedSignature)
                     
                     // Build URL with decoded signature
                     val urlBuilder = URLBuilder(baseUrl)
@@ -186,22 +149,22 @@ object NewPipeUtils {
                     val urlWithSig = urlBuilder.toString()
                     
                     // Deobfuscate throttling parameter
-                    getUrlWithThrottlingParameterDeobfuscated(playerId, urlWithSig)
+                    getUrlWithThrottlingParameterDeobfuscated(player, urlWithSig)
                 }
             } ?: throw Exception("Could not find format url")
         }
 
     /**
-     * Get URL with throttling parameter deobfuscated - same logic as old library
+     * Get URL with throttling parameter deobfuscated - same logic as MetrolistExtractor
      */
     private suspend fun getUrlWithThrottlingParameterDeobfuscated(
-        playerId: String,
+        player: String,
         streamingUrl: String
     ): String {
         val nParam = extractNParam(streamingUrl) ?: return streamingUrl
         val decodedNParam = URLDecoder.decode(nParam, "UTF-8")
         
-        val deobfuscatedN = decodeThrottlingParameter(playerId, decodedNParam)
+        val deobfuscatedN = decodeThrottlingParameter(player, decodedNParam)
         
         return streamingUrl.replace(nParam, URLEncoder.encode(deobfuscatedN, "UTF-8"))
     }
@@ -220,7 +183,7 @@ object NewPipeUtils {
      * Clear all caches - useful when player version changes
      */
     fun clearAllCaches() {
-        cachedPlayerId = null
+        cachedPlayer = null
         cachedSignatureTimestamp = null
     }
 }
