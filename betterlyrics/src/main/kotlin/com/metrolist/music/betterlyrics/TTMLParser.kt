@@ -1,6 +1,7 @@
 package com.metrolist.music.betterlyrics
 
 import org.w3c.dom.Element
+import org.w3c.dom.Node
 import javax.xml.parsers.DocumentBuilderFactory
 
 object TTMLParser {
@@ -16,6 +17,13 @@ object TTMLParser {
         val startTime: Double,
         val endTime: Double
     )
+
+    private data class SpanInfo(
+        val text: String,
+        val startTime: Double,
+        val endTime: Double,
+        val hasTrailingSpace: Boolean
+    )
     
     fun parseTTML(ttml: String): List<ParsedLine> {
         val lines = mutableListOf<ParsedLine>()
@@ -26,7 +34,6 @@ object TTMLParser {
             val builder = factory.newDocumentBuilder()
             val doc = builder.parse(ttml.byteInputStream())
             
-            // Find all <p> elements (paragraphs/lines)
             val pElements = doc.getElementsByTagName("p")
             
             for (i in 0 until pElements.length) {
@@ -36,45 +43,52 @@ object TTMLParser {
                 if (begin.isNullOrEmpty()) continue
                 
                 val startTime = parseTime(begin)
-                val words = mutableListOf<ParsedWord>()
-                val lineText = StringBuilder()
-                
-                // Parse <span> elements (words)
-                val spans = pElement.getElementsByTagName("span")
-                for (j in 0 until spans.length) {
-                    val span = spans.item(j) as? Element ?: continue
-                    
-                    val wordBegin = span.getAttribute("begin")
-                    val wordEnd = span.getAttribute("end")
-                    val wordText = span.textContent.trim()
-                    
-                    if (wordText.isNotEmpty()) {
-                        if (lineText.isNotEmpty()) {
-                            lineText.append(" ")
-                        }
-                        lineText.append(wordText)
-                        
-                        if (wordBegin.isNotEmpty() && wordEnd.isNotEmpty()) {
-                            words.add(
-                                ParsedWord(
-                                    text = wordText,
-                                    startTime = parseTime(wordBegin),
-                                    endTime = parseTime(wordEnd)
-                                )
-                            )
+                val spanInfos = mutableListOf<SpanInfo>()
+
+                val childNodes = pElement.childNodes
+                for (j in 0 until childNodes.length) {
+                    val node = childNodes.item(j)
+
+                    when (node.nodeType) {
+                        Node.ELEMENT_NODE -> {
+                            val span = node as? Element
+                            if (span?.tagName?.lowercase() == "span") {
+                                val wordBegin = span.getAttribute("begin")
+                                val wordEnd = span.getAttribute("end")
+                                val wordText = span.textContent
+
+                                if (wordText.isNotEmpty() && wordBegin.isNotEmpty() && wordEnd.isNotEmpty()) {
+                                    val nextSibling = node.nextSibling
+                                    val hasTrailingSpace = nextSibling?.nodeType == Node.TEXT_NODE &&
+                                        nextSibling.textContent?.contains(Regex("\\s")) == true
+
+                                    spanInfos.add(
+                                        SpanInfo(
+                                            text = wordText,
+                                            startTime = parseTime(wordBegin),
+                                            endTime = parseTime(wordEnd),
+                                            hasTrailingSpace = hasTrailingSpace
+                                        )
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-                
-                // If no spans found, use text content directly
-                if (lineText.isEmpty()) {
-                    lineText.append(pElement.textContent.trim())
+
+                val words = mergeSpansIntoWords(spanInfos)
+                val lineText = words.joinToString(" ") { it.text }
+
+                val finalText = if (lineText.isEmpty()) {
+                    pElement.textContent.trim()
+                } else {
+                    lineText
                 }
                 
-                if (lineText.isNotEmpty()) {
+                if (finalText.isNotEmpty()) {
                     lines.add(
                         ParsedLine(
-                            text = lineText.toString(),
+                            text = finalText,
                             startTime = startTime,
                             words = words
                         )
@@ -82,11 +96,58 @@ object TTMLParser {
                 }
             }
         } catch (e: Exception) {
-            // Return empty list on parse error
             return emptyList()
         }
         
         return lines
+    }
+
+    private fun mergeSpansIntoWords(spanInfos: List<SpanInfo>): List<ParsedWord> {
+        if (spanInfos.isEmpty()) return emptyList()
+
+        val words = mutableListOf<ParsedWord>()
+        var currentText = StringBuilder()
+        var currentStartTime = spanInfos[0].startTime
+        var currentEndTime = spanInfos[0].endTime
+
+        for ((index, span) in spanInfos.withIndex()) {
+            if (index == 0) {
+                currentText.append(span.text)
+                currentStartTime = span.startTime
+                currentEndTime = span.endTime
+            } else {
+                val prevSpan = spanInfos[index - 1]
+                if (prevSpan.hasTrailingSpace) {
+                    if (currentText.isNotEmpty()) {
+                        words.add(
+                            ParsedWord(
+                                text = currentText.toString().trim(),
+                                startTime = currentStartTime,
+                                endTime = currentEndTime
+                            )
+                        )
+                    }
+                    currentText = StringBuilder(span.text)
+                    currentStartTime = span.startTime
+                    currentEndTime = span.endTime
+                } else {
+                    currentText.append(span.text)
+                    currentEndTime = span.endTime
+                }
+            }
+        }
+
+        if (currentText.isNotEmpty()) {
+            words.add(
+                ParsedWord(
+                    text = currentText.toString().trim(),
+                    startTime = currentStartTime,
+                    endTime = currentEndTime
+                )
+            )
+        }
+
+        return words
     }
     
     fun toLRC(lines: List<ParsedLine>): String {

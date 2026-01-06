@@ -94,45 +94,12 @@ object LrcLib {
         val cleanedTitle = cleanTitle(title)
         val cleanedArtist = cleanArtist(artist)
         
-        // Strategy 1: Search with cleaned title and artist
-        var results = queryLyricsWithParams(
+        // Use only exact match strategy to avoid incorrect sync from remixes/radio edits
+        return queryLyricsWithParams(
             trackName = cleanedTitle,
             artistName = cleanedArtist,
             albumName = album
         ).filter { it.syncedLyrics != null || it.plainLyrics != null }
-        
-        if (results.isNotEmpty()) return results
-        
-        // Strategy 2: Search with cleaned title only (artist might be different)
-        results = queryLyricsWithParams(
-            trackName = cleanedTitle
-        ).filter { it.syncedLyrics != null || it.plainLyrics != null }
-        
-        if (results.isNotEmpty()) return results
-        
-        // Strategy 3: Use q parameter with combined search
-        results = queryLyricsWithParams(
-            query = "$cleanedArtist $cleanedTitle"
-        ).filter { it.syncedLyrics != null || it.plainLyrics != null }
-        
-        if (results.isNotEmpty()) return results
-        
-        // Strategy 4: Use q parameter with just title
-        results = queryLyricsWithParams(
-            query = cleanedTitle
-        ).filter { it.syncedLyrics != null || it.plainLyrics != null }
-        
-        if (results.isNotEmpty()) return results
-        
-        // Strategy 5: Try original title if different from cleaned
-        if (cleanedTitle != title.trim()) {
-            results = queryLyricsWithParams(
-                trackName = title.trim(),
-                artistName = artist.trim()
-            ).filter { it.syncedLyrics != null || it.plainLyrics != null }
-        }
-        
-        return results
     }
 
     suspend fun getLyrics(

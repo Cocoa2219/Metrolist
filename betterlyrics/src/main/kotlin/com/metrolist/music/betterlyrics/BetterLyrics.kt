@@ -38,6 +38,35 @@ object BetterLyrics {
         }
     }
 
+    private val titleCleanupPatterns = listOf(
+        Regex("""\s*\(.*?(official|video|audio|lyrics|lyric|visualizer|hd|hq|4k|remaster|live|acoustic|version|edit|extended|radio|clean|explicit).*?\)""", RegexOption.IGNORE_CASE),
+        Regex("""\s*\[.*?(official|video|audio|lyrics|lyric|visualizer|hd|hq|4k|remaster|live|acoustic|version|edit|extended|radio|clean|explicit).*?\]""", RegexOption.IGNORE_CASE),
+        Regex("""\s*【.*?】"""),
+        Regex("""\s*\|.*$"""),
+        Regex("""\s*-\s*(official|video|audio|lyrics|lyric|visualizer).*$""", RegexOption.IGNORE_CASE),
+    )
+
+    private val artistSeparators = listOf(" & ", " and ", ", ", " x ", " X ", " feat. ", " feat ", " ft. ", " ft ", " featuring ", " with ")
+
+    private fun cleanTitle(title: String): String {
+        var cleaned = title.trim()
+        for (pattern in titleCleanupPatterns) {
+            cleaned = cleaned.replace(pattern, "")
+        }
+        return cleaned.trim()
+    }
+
+    private fun cleanArtist(artist: String): String {
+        var cleaned = artist.trim()
+        for (separator in artistSeparators) {
+            if (cleaned.contains(separator, ignoreCase = true)) {
+                cleaned = cleaned.split(separator, ignoreCase = true, limit = 2)[0]
+                break
+            }
+        }
+        return cleaned.trim()
+    }
+
     private suspend fun fetchTTML(
         artist: String,
         title: String,
@@ -58,10 +87,12 @@ object BetterLyrics {
         artist: String,
         duration: Int,
     ) = runCatching {
-        val ttml = fetchTTML(artist, title, duration)
+        val cleanedTitle = cleanTitle(title)
+        val cleanedArtist = cleanArtist(artist)
+        
+        val ttml = fetchTTML(cleanedArtist, cleanedTitle, duration)
             ?: throw IllegalStateException("Lyrics unavailable")
         
-        // Parse TTML and convert to LRC format
         val parsedLines = TTMLParser.parseTTML(ttml)
         if (parsedLines.isEmpty()) {
             throw IllegalStateException("Failed to parse lyrics")
@@ -77,7 +108,6 @@ object BetterLyrics {
         duration: Int,
         callback: (String) -> Unit,
     ) {
-        // The new API returns a single TTML result, not multiple options
         getLyrics(title, artist, duration)
             .onSuccess { lrcString ->
                 callback(lrcString)
