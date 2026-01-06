@@ -33,42 +33,83 @@ object TTMLParser {
                 val pElement = pElements.item(i) as? Element ?: continue
                 
                 val begin = pElement.getAttribute("begin")
+                val end = pElement.getAttribute("end")
                 if (begin.isNullOrEmpty()) continue
                 
-                val startTime = parseTime(begin)
+                val lineStartTime = parseTime(begin)
+                val lineEndTime = if (end.isNotEmpty()) parseTime(end) else lineStartTime
+                
                 val words = mutableListOf<ParsedWord>()
                 val lineText = StringBuilder()
                 
-                // Parse <span> elements (words)
-                val spans = pElement.getElementsByTagName("span")
-                for (j in 0 until spans.length) {
-                    val span = spans.item(j) as? Element ?: continue
+                val childNodes = pElement.childNodes
+                for (j in 0 until childNodes.length) {
+                    val node = childNodes.item(j)
                     
-                    val wordBegin = span.getAttribute("begin")
-                    val wordEnd = span.getAttribute("end")
-                    val wordText = span.textContent.trim()
-                    
-                    if (wordText.isNotEmpty()) {
-                        if (lineText.isNotEmpty()) {
-                            lineText.append(" ")
+                    when (node.nodeType) {
+                        org.w3c.dom.Node.ELEMENT_NODE -> {
+                            val childElement = node as Element
+                            if (childElement.tagName == "span") {
+                                val wordBegin = childElement.getAttribute("begin")
+                                val wordEnd = childElement.getAttribute("end")
+                                
+                                // Check for background vocal role
+                                val role = childElement.getAttribute("ttm:role") ?: childElement.getAttribute("role")
+                                val isBgSpan = role == "x-bg" || role == "background"
+                                
+                                val wordText = childElement.textContent
+                                
+                                if (wordText.isNotEmpty()) {
+                                    // Check if we should merge with the previous word
+                                    // Merge if:
+                                    // 1. There is a previous word
+                                    // 2. No space separator in lineText (from Text Nodes)
+                                    // 3. Current word doesn't explicitly start with space
+                                    val shouldMerge = words.isNotEmpty() &&
+                                            lineText.isNotEmpty() &&
+                                            !lineText.last().isWhitespace() &&
+                                            !wordText.startsWith(" ")
+                                    
+                                    lineText.append(wordText)
+                                    
+                                    val wordStartTime = if (wordBegin.isNotEmpty()) parseTime(wordBegin) else lineStartTime
+                                    val wordEndTime = if (wordEnd.isNotEmpty()) parseTime(wordEnd) else lineEndTime
+                                    
+                                    if (shouldMerge) {
+                                        val lastWord = words.removeAt(words.lastIndex)
+                                        words.add(
+                                            lastWord.copy(
+                                                text = lastWord.text + wordText.trim(),
+                                                endTime = wordEndTime // Extend the word to end of this syllable
+                                            )
+                                        )
+                                    } else {
+                                        words.add(
+                                            ParsedWord(
+                                                text = wordText.trim(),
+                                                startTime = wordStartTime,
+                                                endTime = wordEndTime
+                                            )
+                                        )
+                                    }
+                                }
+                            }
                         }
-                        lineText.append(wordText)
-                        
-                        if (wordBegin.isNotEmpty() && wordEnd.isNotEmpty()) {
-                            words.add(
-                                ParsedWord(
-                                    text = wordText,
-                                    startTime = parseTime(wordBegin),
-                                    endTime = parseTime(wordEnd)
-                                )
-                            )
+                        org.w3c.dom.Node.TEXT_NODE -> {
+                            val text = node.textContent
+                            // If text node is purely whitespace, treat as a single space
+                            // If it has content, append as is
+                            if (text.isNotBlank()) {
+                                 lineText.append(text)
+                            } else if (text.isNotEmpty()) {
+                                 // Collapse multiple whitespace chars (like indentation) to single space
+                                 // Only add if not already ending in whitespace to avoid double spaces
+                                 if (lineText.isNotEmpty() && !lineText.last().isWhitespace()) {
+                                     lineText.append(" ")
+                                 }
+                            }
                         }
                     }
-                }
-                
-                // If no spans found, use text content directly
-                if (lineText.isEmpty()) {
-                    lineText.append(pElement.textContent.trim())
                 }
                 
                 if (lineText.isNotEmpty()) {

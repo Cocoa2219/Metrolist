@@ -6,7 +6,9 @@
 package com.metrolist.music.lyrics
 
 import android.content.Context
+import android.util.Log
 import android.util.LruCache
+import com.metrolist.music.utils.GlobalLog
 import com.metrolist.music.constants.PreferredLyricsProvider
 import com.metrolist.music.constants.PreferredLyricsProviderKey
 import com.metrolist.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
@@ -83,8 +85,11 @@ constructor(
 
         val cached = cache.get(mediaMetadata.id)?.firstOrNull()
         if (cached != null) {
+            GlobalLog.append(Log.DEBUG, "LyricsHelper", "Found lyrics in cache for ${mediaMetadata.title}")
             return cached.lyrics
         }
+
+        GlobalLog.append(Log.DEBUG, "LyricsHelper", "Fetching lyrics for ${mediaMetadata.title} (Artist: ${mediaMetadata.artists.joinToString { it.name }}, Album: ${mediaMetadata.album?.title})")
 
         // Check network connectivity before making network requests
         // Use synchronous check as fallback if flow doesn't emit
@@ -96,6 +101,7 @@ constructor(
         }
         
         if (!isNetworkAvailable) {
+            GlobalLog.append(Log.WARN, "LyricsHelper", "Network unavailable, aborting lyrics fetch")
             // Still proceed but return not found to avoid hanging
             return LYRICS_NOT_FOUND
         }
@@ -103,25 +109,33 @@ constructor(
         val scope = CoroutineScope(SupervisorJob())
         val deferred = scope.async {
             for (provider in lyricsProviders) {
-                if (provider.isEnabled(context)) {
+                val enabled = provider.isEnabled(context)
+                GlobalLog.append(Log.DEBUG, "LyricsHelper", "Checking provider: ${provider.name} (Enabled: $enabled)")
+
+                if (enabled) {
                     try {
                         val result = provider.getLyrics(
                             mediaMetadata.id,
                             mediaMetadata.title,
                             mediaMetadata.artists.joinToString { it.name },
+                            mediaMetadata.album?.title,
                             mediaMetadata.duration,
                         )
                         result.onSuccess { lyrics ->
+                            GlobalLog.append(Log.INFO, "LyricsHelper", "Provider ${provider.name} returned success (Length: ${lyrics.length})")
                             return@async lyrics
                         }.onFailure {
+                            GlobalLog.append(Log.WARN, "LyricsHelper", "Provider ${provider.name} failed: ${it.message}")
                             reportException(it)
                         }
                     } catch (e: Exception) {
+                        GlobalLog.append(Log.ERROR, "LyricsHelper", "Exception in provider ${provider.name}: ${e.message}")
                         // Catch network-related exceptions like UnresolvedAddressException
                         reportException(e)
                     }
                 }
             }
+            GlobalLog.append(Log.WARN, "LyricsHelper", "All providers failed or returned no lyrics")
             return@async LYRICS_NOT_FOUND
         }
 
@@ -134,6 +148,7 @@ constructor(
         mediaId: String,
         songTitle: String,
         songArtists: String,
+        songAlbum: String?,
         duration: Int,
         callback: (LyricsResult) -> Unit,
     ) {
@@ -166,7 +181,7 @@ constructor(
             lyricsProviders.forEach { provider ->
                 if (provider.isEnabled(context)) {
                     try {
-                        provider.getAllLyrics(mediaId, songTitle, songArtists, duration) { lyrics ->
+                        provider.getAllLyrics(mediaId, songTitle, songArtists, songAlbum, duration) { lyrics ->
                             val result = LyricsResult(provider.name, lyrics)
                             allResult += result
                             callback(result)

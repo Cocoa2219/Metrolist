@@ -18,6 +18,7 @@ object YouTubeLyricsProvider : LyricsProvider {
         id: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
     ): Result<String> =
         runCatching {
@@ -28,4 +29,15 @@ object YouTubeLyricsProvider : LyricsProvider {
                         ?: throw IllegalStateException("Lyrics endpoint not found"),
                 ).getOrThrow() ?: throw IllegalStateException("Lyrics unavailable")
         }
+
+    override suspend fun getAllLyrics(
+        id: String,
+        title: String,
+        artist: String,
+        album: String?,
+        duration: Int,
+        callback: (String) -> Unit,
+    ) {
+        getLyrics(id, title, artist, album, duration).onSuccess(callback)
+    }
 }

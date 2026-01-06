@@ -11,7 +11,16 @@ import com.metrolist.music.constants.EnableBetterLyricsKey
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 
+import com.metrolist.music.utils.GlobalLog
+import android.util.Log
+
 object BetterLyricsProvider : LyricsProvider {
+    init {
+        BetterLyrics.logger = { message ->
+            GlobalLog.append(Log.INFO, "BetterLyrics", message)
+        }
+    }
+
     override val name = "BetterLyrics"
 
     override fun isEnabled(context: Context): Boolean = context.dataStore[EnableBetterLyricsKey] ?: true
@@ -20,16 +29,18 @@ object BetterLyricsProvider : LyricsProvider {
         id: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
-    ): Result<String> = BetterLyrics.getLyrics(title, artist, duration)
+    ): Result<String> = BetterLyrics.getLyrics(title, artist, album, duration)
 
     override suspend fun getAllLyrics(
         id: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
         callback: (String) -> Unit,
     ) {
-        BetterLyrics.getAllLyrics(title, artist, duration, callback)
+        BetterLyrics.getAllLyrics(title, artist, album, duration, callback)
     }
 }

@@ -341,7 +341,17 @@ object LyricsUtils {
                     mil *= 10
                 }
                 val time = min * DateUtils.MINUTE_IN_MILLIS + sec * DateUtils.SECOND_IN_MILLIS + mil
-                LyricsEntry(time, text, words)
+                LyricsEntry(
+                    time = time,
+                    text = text,
+                    words = words?.map {
+                        WordTimestamp(
+                            text = it.text,
+                            startTime = it.startTime,
+                            endTime = it.endTime,
+                        )
+                    }?.takeIf { it.isNotEmpty() }
+                )
             }.toList()
     }
 
