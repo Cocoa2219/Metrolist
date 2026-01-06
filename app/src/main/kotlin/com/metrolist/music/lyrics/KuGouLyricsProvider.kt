@@ -20,6 +20,7 @@ object KuGouLyricsProvider : LyricsProvider {
         id: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int
     ): Result<String> =
         KuGou.getLyrics(title, artist, duration)
@@ -28,6 +29,7 @@ object KuGouLyricsProvider : LyricsProvider {
         id: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
         callback: (String) -> Unit
     ) {

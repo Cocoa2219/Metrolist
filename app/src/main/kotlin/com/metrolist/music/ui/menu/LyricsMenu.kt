@@ -189,6 +189,7 @@ fun LyricsMenu(
                             searchMediaMetadata.id,
                             titleField.text,
                             artistField.text,
+                            searchMediaMetadata.album?.title,
                             searchMediaMetadata.duration
                         )
                         showSearchResultDialog = true

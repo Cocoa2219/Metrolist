@@ -9,10 +9,14 @@ import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 object BetterLyrics {
+    private const val API_BASE_URL = "https://lyrics-api.boidu.dev/"
+    
     private val client by lazy {
         HttpClient(CIO) {
             install(ContentNegotiation) {
@@ -25,72 +29,53 @@ object BetterLyrics {
             }
 
             install(HttpTimeout) {
-                requestTimeoutMillis = 15000
-                connectTimeoutMillis = 10000
-                socketTimeoutMillis = 15000
+                requestTimeoutMillis = 20000
+                connectTimeoutMillis = 15000
+                socketTimeoutMillis = 20000
             }
 
             defaultRequest {
-                url("https://lyrics-api.boidu.dev")
+                url(API_BASE_URL)
             }
 
-            expectSuccess = true
+            expectSuccess = false
         }
-    }
-
-    private val titleCleanupPatterns = listOf(
-        Regex("""\s*\(.*?(official|video|audio|lyrics|lyric|visualizer|hd|hq|4k|remaster|live|acoustic|version|edit|extended|radio|clean|explicit).*?\)""", RegexOption.IGNORE_CASE),
-        Regex("""\s*\[.*?(official|video|audio|lyrics|lyric|visualizer|hd|hq|4k|remaster|live|acoustic|version|edit|extended|radio|clean|explicit).*?\]""", RegexOption.IGNORE_CASE),
-        Regex("""\s*【.*?】"""),
-        Regex("""\s*\|.*$"""),
-        Regex("""\s*-\s*(official|video|audio|lyrics|lyric|visualizer).*$""", RegexOption.IGNORE_CASE),
-    )
-
-    private val artistSeparators = listOf(" & ", " and ", ", ", " x ", " X ", " feat. ", " feat ", " ft. ", " ft ", " featuring ", " with ")
-
-    private fun cleanTitle(title: String): String {
-        var cleaned = title.trim()
-        for (pattern in titleCleanupPatterns) {
-            cleaned = cleaned.replace(pattern, "")
-        }
-        return cleaned.trim()
-    }
-
-    private fun cleanArtist(artist: String): String {
-        var cleaned = artist.trim()
-        for (separator in artistSeparators) {
-            if (cleaned.contains(separator, ignoreCase = true)) {
-                cleaned = cleaned.split(separator, ignoreCase = true, limit = 2)[0]
-                break
-            }
-        }
-        return cleaned.trim()
     }
 
     private suspend fun fetchTTML(
         artist: String,
         title: String,
+        album: String? = null,
         duration: Int = -1,
-    ): String? = runCatching {
-        val response = client.get("/getLyrics") {
-            parameter("s", title)
-            parameter("a", artist)
-            if (duration != -1) {
-                parameter("d", duration)
+    ): String? {
+        return try {
+            val response: HttpResponse = client.get("/ttml/getLyrics") {
+                parameter("s", title)
+                parameter("a", artist)
+                album?.let { parameter("al", it) }
+                if (duration != -1) {
+                    parameter("d", duration)
+                }
             }
-        }.body<TTMLResponse>()
-        response.ttml
-    }.getOrNull()
+            
+            if (!response.status.isSuccess()) {
+                return null
+            }
+            
+            val ttmlResponse = response.body<TTMLResponse>()
+            ttmlResponse.ttml.takeIf { it.isNotBlank() }
+        } catch (e: Exception) {
+            null
+        }
+    }
 
     suspend fun getLyrics(
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
     ) = runCatching {
-        val cleanedTitle = cleanTitle(title)
-        val cleanedArtist = cleanArtist(artist)
-        
-        val ttml = fetchTTML(cleanedArtist, cleanedTitle, duration)
+        val ttml = fetchTTML(artist, title, album, duration)
             ?: throw IllegalStateException("Lyrics unavailable")
         
         val parsedLines = TTMLParser.parseTTML(ttml)
@@ -101,14 +86,14 @@ object BetterLyrics {
         TTMLParser.toLRC(parsedLines)
     }
 
-
     suspend fun getAllLyrics(
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
         callback: (String) -> Unit,
     ) {
-        getLyrics(title, artist, duration)
+        getLyrics(title, artist, album, duration)
             .onSuccess { lrcString ->
                 callback(lrcString)
             }

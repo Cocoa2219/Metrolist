@@ -68,6 +68,7 @@ constructor(
         mediaId: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
     ) {
         isLoading.value = true
@@ -75,7 +76,7 @@ constructor(
         job?.cancel()
         job =
             viewModelScope.launch(Dispatchers.IO) {
-                lyricsHelper.getAllLyrics(mediaId, title, artist, duration) { result ->
+                lyricsHelper.getAllLyrics(mediaId, title, artist, album, duration) { result ->
                     results.update {
                         it + result
                     }

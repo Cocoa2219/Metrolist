@@ -20,16 +20,18 @@ object LrcLibLyricsProvider : LyricsProvider {
         id: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
-    ): Result<String> = LrcLib.getLyrics(title, artist, duration)
+    ): Result<String> = LrcLib.getLyrics(title, artist, duration, album)
 
     override suspend fun getAllLyrics(
         id: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
         callback: (String) -> Unit,
     ) {
-        LrcLib.getAllLyrics(title, artist, duration, null, callback)
+        LrcLib.getAllLyrics(title, artist, duration, album, callback)
     }
 }

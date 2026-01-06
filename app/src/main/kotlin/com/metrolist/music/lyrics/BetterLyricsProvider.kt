@@ -20,16 +20,18 @@ object BetterLyricsProvider : LyricsProvider {
         id: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
-    ): Result<String> = BetterLyrics.getLyrics(title, artist, duration)
+    ): Result<String> = BetterLyrics.getLyrics(title, artist, album, duration)
 
     override suspend fun getAllLyrics(
         id: String,
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
         callback: (String) -> Unit,
     ) {
-        BetterLyrics.getAllLyrics(title, artist, duration, callback)
+        BetterLyrics.getAllLyrics(title, artist, album, duration, callback)
     }
 }

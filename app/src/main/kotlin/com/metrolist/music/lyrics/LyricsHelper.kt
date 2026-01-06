@@ -109,6 +109,7 @@ constructor(
                             mediaMetadata.id,
                             mediaMetadata.title,
                             mediaMetadata.artists.joinToString { it.name },
+                            mediaMetadata.album?.title,
                             mediaMetadata.duration,
                         )
                         result.onSuccess { lyrics ->
@@ -134,6 +135,7 @@ constructor(
         mediaId: String,
         songTitle: String,
         songArtists: String,
+        songAlbum: String?,
         duration: Int,
         callback: (LyricsResult) -> Unit,
     ) {
@@ -166,7 +168,7 @@ constructor(
             lyricsProviders.forEach { provider ->
                 if (provider.isEnabled(context)) {
                     try {
-                        provider.getAllLyrics(mediaId, songTitle, songArtists, duration) { lyrics ->
+                        provider.getAllLyrics(mediaId, songTitle, songArtists, songAlbum, duration) { lyrics ->
                             val result = LyricsResult(provider.name, lyrics)
                             allResult += result
                             callback(result)
