@@ -53,7 +53,7 @@ object BetterLyrics {
             // Remove content in square brackets ([Explicit], [Remaster], etc.)
             .replace(Regex("\\s*\\[[^]]*\\]"), "")
             // Remove "feat.", "ft.", "featuring" and everything after
-            .replace(Regex("\\s*(?:feat\\.?|ft\\.?|featuring)\\s+.*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s*(?i)(?:feat\\.?|ft\\.?|featuring)\\s+.*"), "")
             // Remove special characters except basic punctuation
             .replace(Regex("[''`]"), "'")
             .replace(Regex("[""„]"), "\"")
@@ -65,7 +65,7 @@ object BetterLyrics {
     // Extract primary artist (first artist before comma, &, etc.)
     private fun extractPrimaryArtist(artist: String): String {
         return artist
-            .split(Regex("[,&]|\\s+(?:and|x|vs\\.?)\\s+", RegexOption.IGNORE_CASE))
+            .split(Regex("(?i)[,&]|\\s+(?:and|x|vs\\.?)\\s+"))
             .firstOrNull()
             ?.let { normalizeText(it) }
             ?: normalizeText(artist)
