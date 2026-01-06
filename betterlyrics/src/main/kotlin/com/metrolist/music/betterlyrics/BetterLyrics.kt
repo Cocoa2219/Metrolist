@@ -9,10 +9,14 @@ import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
 import io.ktor.client.request.parameter
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 
 object BetterLyrics {
+    private const val API_BASE_URL = "https://lyrics-api.boidu.dev/"
+    
     private val client by lazy {
         HttpClient(CIO) {
             install(ContentNegotiation) {
@@ -25,18 +29,21 @@ object BetterLyrics {
             }
 
             install(HttpTimeout) {
-                requestTimeoutMillis = 15000
-                connectTimeoutMillis = 10000
-                socketTimeoutMillis = 15000
+                requestTimeoutMillis = 20000
+                connectTimeoutMillis = 15000
+                socketTimeoutMillis = 20000
             }
 
             defaultRequest {
-                url("https://lyrics-api.boidu.dev")
+                url(API_BASE_URL)
             }
-
-            expectSuccess = true
+            
+            // Don't throw on non-2xx responses, handle them gracefully
+            expectSuccess = false
         }
     }
+
+    var logger: ((String) -> Unit)? = null
 
     // Clean and normalize text for better search results
     private fun normalizeText(text: String): String {
@@ -67,6 +74,7 @@ object BetterLyrics {
     private suspend fun fetchTTML(
         artist: String,
         title: String,
+        album: String? = null,
         duration: Int = -1,
     ): String? {
         val normalizedTitle = normalizeText(title)
@@ -75,31 +83,54 @@ object BetterLyrics {
 
         // Try different search strategies
         val searchStrategies = listOf(
-            // Strategy 1: Normalized title and artist
-            Pair(normalizedTitle, normalizedArtist),
+            // Strategy 1: Normalized title and artist with album
+            Triple(normalizedTitle, normalizedArtist, album),
             // Strategy 2: Normalized title with primary artist only
-            Pair(normalizedTitle, primaryArtist),
+            Triple(normalizedTitle, primaryArtist, album),
             // Strategy 3: Original title with normalized artist
-            Pair(title.trim(), normalizedArtist),
+            Triple(title.trim(), normalizedArtist, album),
             // Strategy 4: Title only (for cases where artist name differs)
-            Pair(normalizedTitle, ""),
+            Triple(normalizedTitle, "", null),
         )
 
-        for ((searchTitle, searchArtist) in searchStrategies) {
+        for ((searchTitle, searchArtist, searchAlbum) in searchStrategies) {
             if (searchTitle.isBlank()) continue
             
-            val result = runCatching {
-                val response = client.get("/getLyrics") {
+            logger?.invoke("Trying search: title='$searchTitle', artist='$searchArtist', album='$searchAlbum'")
+            
+            val result = try {
+                val response: HttpResponse = client.get("/ttml/getLyrics") {
                     parameter("s", searchTitle)
                     if (searchArtist.isNotBlank()) {
                         parameter("a", searchArtist)
                     }
+                    searchAlbum?.let { parameter("al", it) }
                     if (duration > 0) {
                         parameter("d", duration)
                     }
-                }.body<TTMLResponse>()
-                response.ttml
-            }.getOrNull()
+                }
+                
+                logger?.invoke("Response Status: ${response.status}")
+                
+                if (!response.status.isSuccess()) {
+                    logger?.invoke("Request failed with status: ${response.status}")
+                    null
+                } else {
+                    val ttmlResponse = response.body<TTMLResponse>()
+                    val ttml = ttmlResponse.ttml
+                    
+                    if (ttml.isNotBlank()) {
+                        logger?.invoke("Received TTML (length: ${ttml.length})")
+                        ttml
+                    } else {
+                        logger?.invoke("Received empty TTML")
+                        null
+                    }
+                }
+            } catch (e: Exception) {
+                logger?.invoke("Error fetching lyrics: ${e.message}")
+                null
+            }
 
             if (!result.isNullOrBlank()) {
                 return result
@@ -112,31 +143,41 @@ object BetterLyrics {
     suspend fun getLyrics(
         title: String,
         artist: String,
+        album: String?,
         duration: Int,
     ) = runCatching {
-        val ttml = fetchTTML(artist, title, duration)
+        val ttml = fetchTTML(artist, title, album, duration)
             ?: throw IllegalStateException("Lyrics unavailable")
-        
-        // Parse TTML and convert to LRC format
-        val parsedLines = TTMLParser.parseTTML(ttml)
-        if (parsedLines.isEmpty()) {
-            throw IllegalStateException("Failed to parse lyrics")
-        }
-        
-        TTMLParser.toLRC(parsedLines)
+        ttml
     }
 
+    // Backward compatibility overload
+    suspend fun getLyrics(
+        title: String,
+        artist: String,
+        duration: Int,
+    ) = getLyrics(title, artist, null, duration)
 
+    suspend fun getAllLyrics(
+        title: String,
+        artist: String,
+        album: String?,
+        duration: Int,
+        callback: (String) -> Unit,
+    ) {
+        val result = getLyrics(title, artist, album, duration)
+        result.onSuccess { ttml ->
+            callback(ttml)
+        }
+    }
+
+    // Backward compatibility overload
     suspend fun getAllLyrics(
         title: String,
         artist: String,
         duration: Int,
         callback: (String) -> Unit,
     ) {
-        // The new API returns a single TTML result, not multiple options
-        getLyrics(title, artist, duration)
-            .onSuccess { lrcString ->
-                callback(lrcString)
-            }
+        getAllLyrics(title, artist, null, duration, callback)
     }
 }
