@@ -38,20 +38,76 @@ object BetterLyrics {
         }
     }
 
+    // Clean and normalize text for better search results
+    private fun normalizeText(text: String): String {
+        return text
+            // Remove content in parentheses (feat., ft., etc.)
+            .replace(Regex("\\s*\\([^)]*\\)"), "")
+            // Remove content in square brackets ([Explicit], [Remaster], etc.)
+            .replace(Regex("\\s*\\[[^]]*\\]"), "")
+            // Remove "feat.", "ft.", "featuring" and everything after
+            .replace(Regex("\\s*(?:feat\\.?|ft\\.?|featuring)\\s+.*", RegexOption.IGNORE_CASE), "")
+            // Remove special characters except basic punctuation
+            .replace(Regex("[''`]"), "'")
+            .replace(Regex("[""„]"), "\"")
+            // Remove extra whitespace
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    // Extract primary artist (first artist before comma, &, etc.)
+    private fun extractPrimaryArtist(artist: String): String {
+        return artist
+            .split(Regex("[,&]|\\s+(?:and|x|vs\\.?)\\s+", RegexOption.IGNORE_CASE))
+            .firstOrNull()
+            ?.let { normalizeText(it) }
+            ?: normalizeText(artist)
+    }
+
     private suspend fun fetchTTML(
         artist: String,
         title: String,
         duration: Int = -1,
-    ): String? = runCatching {
-        val response = client.get("/getLyrics") {
-            parameter("s", title)
-            parameter("a", artist)
-            if (duration != -1) {
-                parameter("d", duration)
+    ): String? {
+        val normalizedTitle = normalizeText(title)
+        val normalizedArtist = normalizeText(artist)
+        val primaryArtist = extractPrimaryArtist(artist)
+
+        // Try different search strategies
+        val searchStrategies = listOf(
+            // Strategy 1: Normalized title and artist
+            Pair(normalizedTitle, normalizedArtist),
+            // Strategy 2: Normalized title with primary artist only
+            Pair(normalizedTitle, primaryArtist),
+            // Strategy 3: Original title with normalized artist
+            Pair(title.trim(), normalizedArtist),
+            // Strategy 4: Title only (for cases where artist name differs)
+            Pair(normalizedTitle, ""),
+        )
+
+        for ((searchTitle, searchArtist) in searchStrategies) {
+            if (searchTitle.isBlank()) continue
+            
+            val result = runCatching {
+                val response = client.get("/getLyrics") {
+                    parameter("s", searchTitle)
+                    if (searchArtist.isNotBlank()) {
+                        parameter("a", searchArtist)
+                    }
+                    if (duration > 0) {
+                        parameter("d", duration)
+                    }
+                }.body<TTMLResponse>()
+                response.ttml
+            }.getOrNull()
+
+            if (!result.isNullOrBlank()) {
+                return result
             }
-        }.body<TTMLResponse>()
-        response.ttml
-    }.getOrNull()
+        }
+
+        return null
+    }
 
     suspend fun getLyrics(
         title: String,

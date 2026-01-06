@@ -1,6 +1,7 @@
 package com.metrolist.music.betterlyrics
 
 import org.w3c.dom.Element
+import org.w3c.dom.Node
 import javax.xml.parsers.DocumentBuilderFactory
 
 object TTMLParser {
@@ -8,13 +9,24 @@ object TTMLParser {
     data class ParsedLine(
         val text: String,
         val startTime: Double,
-        val words: List<ParsedWord>
+        val words: List<ParsedWord>,
+        val isBackground: Boolean = false
     )
     
     data class ParsedWord(
         val text: String,
         val startTime: Double,
-        val endTime: Double
+        val endTime: Double,
+        val isBackground: Boolean = false
+    )
+    
+    // Temporary structure for raw span data before merging
+    private data class RawSpan(
+        val text: String,
+        val startTime: Double,
+        val endTime: Double,
+        val hasSpaceBefore: Boolean,
+        val isBackground: Boolean = false
     )
     
     fun parseTTML(ttml: String): List<ParsedLine> {
@@ -36,47 +48,28 @@ object TTMLParser {
                 if (begin.isNullOrEmpty()) continue
                 
                 val startTime = parseTime(begin)
-                val words = mutableListOf<ParsedWord>()
-                val lineText = StringBuilder()
+                val rawSpans = mutableListOf<RawSpan>()
                 
-                // Parse <span> elements (words)
-                val spans = pElement.getElementsByTagName("span")
-                for (j in 0 until spans.length) {
-                    val span = spans.item(j) as? Element ?: continue
-                    
-                    val wordBegin = span.getAttribute("begin")
-                    val wordEnd = span.getAttribute("end")
-                    val wordText = span.textContent.trim()
-                    
-                    if (wordText.isNotEmpty()) {
-                        if (lineText.isNotEmpty()) {
-                            lineText.append(" ")
-                        }
-                        lineText.append(wordText)
-                        
-                        if (wordBegin.isNotEmpty() && wordEnd.isNotEmpty()) {
-                            words.add(
-                                ParsedWord(
-                                    text = wordText,
-                                    startTime = parseTime(wordBegin),
-                                    endTime = parseTime(wordEnd)
-                                )
-                            )
-                        }
-                    }
-                }
+                // Parse child nodes to detect spaces between spans
+                parseChildNodes(pElement, rawSpans)
                 
-                // If no spans found, use text content directly
-                if (lineText.isEmpty()) {
-                    lineText.append(pElement.textContent.trim())
-                }
+                // Merge consecutive spans that form a single word
+                val mergedWords = mergeSpans(rawSpans)
+                
+                // Build line text from merged words
+                val lineText = mergedWords.joinToString(" ") { it.text }
+                
+                // Check if this is a background vocal line
+                val isBackgroundLine = pElement.getAttribute("ttm:role") == "x-bg" ||
+                    pElement.getAttribute("itunes:role") == "background"
                 
                 if (lineText.isNotEmpty()) {
                     lines.add(
                         ParsedLine(
-                            text = lineText.toString(),
+                            text = lineText,
                             startTime = startTime,
-                            words = words
+                            words = mergedWords,
+                            isBackground = isBackgroundLine
                         )
                     )
                 }
@@ -87,6 +80,103 @@ object TTMLParser {
         }
         
         return lines
+    }
+    
+    private fun parseChildNodes(element: Element, rawSpans: MutableList<RawSpan>) {
+        var lastWasSpace = true // Start as true so first word doesn't get space prefix
+        
+        val childNodes = element.childNodes
+        for (i in 0 until childNodes.length) {
+            val node = childNodes.item(i)
+            
+            when (node.nodeType) {
+                Node.TEXT_NODE -> {
+                    // Check if there's whitespace between spans
+                    val text = node.textContent
+                    if (text.isNotEmpty() && text.any { it.isWhitespace() }) {
+                        lastWasSpace = true
+                    }
+                }
+                Node.ELEMENT_NODE -> {
+                    val elem = node as Element
+                    if (elem.tagName.equals("span", ignoreCase = true)) {
+                        val wordBegin = elem.getAttribute("begin")
+                        val wordEnd = elem.getAttribute("end")
+                        val wordText = elem.textContent
+                        
+                        // Check for background vocal markers
+                        val isBackground = elem.getAttribute("ttm:role") == "x-bg" ||
+                            elem.getAttribute("itunes:role") == "background"
+                        
+                        if (wordText.isNotEmpty() && wordBegin.isNotEmpty() && wordEnd.isNotEmpty()) {
+                            rawSpans.add(
+                                RawSpan(
+                                    text = wordText,
+                                    startTime = parseTime(wordBegin),
+                                    endTime = parseTime(wordEnd),
+                                    hasSpaceBefore = lastWasSpace,
+                                    isBackground = isBackground
+                                )
+                            )
+                            lastWasSpace = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private fun mergeSpans(rawSpans: List<RawSpan>): List<ParsedWord> {
+        if (rawSpans.isEmpty()) return emptyList()
+        
+        val mergedWords = mutableListOf<ParsedWord>()
+        var currentText = StringBuilder()
+        var currentStartTime = 0.0
+        var currentEndTime = 0.0
+        var currentIsBackground = false
+        var isFirstSpan = true
+        
+        for (span in rawSpans) {
+            if (isFirstSpan || span.hasSpaceBefore) {
+                // Save previous word if exists
+                if (currentText.isNotEmpty()) {
+                    mergedWords.add(
+                        ParsedWord(
+                            text = currentText.toString(),
+                            startTime = currentStartTime,
+                            endTime = currentEndTime,
+                            isBackground = currentIsBackground
+                        )
+                    )
+                }
+                // Start new word
+                currentText = StringBuilder(span.text)
+                currentStartTime = span.startTime
+                currentEndTime = span.endTime
+                currentIsBackground = span.isBackground
+                isFirstSpan = false
+            } else {
+                // Merge with previous span (no space between them)
+                currentText.append(span.text)
+                currentEndTime = span.endTime
+                // If any part is background, mark the whole word as background
+                currentIsBackground = currentIsBackground || span.isBackground
+            }
+        }
+        
+        // Don't forget the last word
+        if (currentText.isNotEmpty()) {
+            mergedWords.add(
+                ParsedWord(
+                    text = currentText.toString(),
+                    startTime = currentStartTime,
+                    endTime = currentEndTime,
+                    isBackground = currentIsBackground
+                )
+            )
+        }
+        
+        return mergedWords
     }
     
     fun toLRC(lines: List<ParsedLine>): String {
@@ -102,7 +192,8 @@ object TTMLParser {
                 // Add word-level timestamps as special comments if available
                 if (line.words.isNotEmpty()) {
                     val wordsData = line.words.joinToString("|") { word ->
-                        "${word.text}:${word.startTime}:${word.endTime}"
+                        val bgMarker = if (word.isBackground) ":bg" else ""
+                        "${word.text}:${word.startTime}:${word.endTime}$bgMarker"
                     }
                     appendLine("<$wordsData>")
                 }

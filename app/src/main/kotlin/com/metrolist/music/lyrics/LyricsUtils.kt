@@ -309,13 +309,20 @@ object LyricsUtils {
         return try {
             data.split("|").mapNotNull { wordData ->
                 val parts = wordData.split(":")
-                if (parts.size == 3) {
-                    WordTimestamp(
-                        text = parts[0],
-                        startTime = parts[1].toDouble(),
-                        endTime = parts[2].toDouble()
-                    )
-                } else null
+                when {
+                    parts.size >= 3 -> {
+                        // Check if last part is "bg" marker
+                        val isBackground = parts.size == 4 && parts[3] == "bg"
+                        val endTimeStr = if (isBackground) parts[2] else parts.getOrNull(2) ?: return@mapNotNull null
+                        WordTimestamp(
+                            text = parts[0],
+                            startTime = parts[1].toDouble(),
+                            endTime = endTimeStr.toDouble(),
+                            isBackground = isBackground
+                        )
+                    }
+                    else -> null
+                }
             }
         } catch (e: Exception) {
             null
