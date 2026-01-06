@@ -49,23 +49,27 @@ object BetterLyrics {
     private fun normalizeText(text: String): String {
         return text
             // Remove content in parentheses (feat., ft., etc.)
-            .replace(Regex("\\s*\\([^)]*\\)"), "")
+            .replace("\\s*\\([^)]*\\)".toRegex(), "")
             // Remove content in square brackets ([Explicit], [Remaster], etc.)
-            .replace(Regex("\\s*\\[[^]]*\\]"), "")
+            .replace("\\s*\\[[^]]*\\]".toRegex(), "")
             // Remove "feat.", "ft.", "featuring" and everything after
-            .replace(Regex("\\s*(?i)(?:feat\\.?|ft\\.?|featuring)\\s+.*"), "")
-            // Remove special characters except basic punctuation
-            .replace(Regex("[''`]"), "'")
-            .replace(Regex("[""„]"), "\"")
+            .replace("(?i)\\s*(?:feat\\.?|ft\\.?|featuring)\\s+.*".toRegex(), "")
+            // Remove fancy quotes with regular ones
+            .replace('\u2018', '\'') // '
+            .replace('\u2019', '\'') // '
+            .replace('\u0060', '\'') // `
+            .replace('\u201C', '"')  // "
+            .replace('\u201D', '"')  // "
+            .replace('\u201E', '"')  // „
             // Remove extra whitespace
-            .replace(Regex("\\s+"), " ")
+            .replace("\\s+".toRegex(), " ")
             .trim()
     }
 
     // Extract primary artist (first artist before comma, &, etc.)
     private fun extractPrimaryArtist(artist: String): String {
         return artist
-            .split(Regex("(?i)[,&]|\\s+(?:and|x|vs\\.?)\\s+"))
+            .split("(?i)[,&]|\\s+(?:and|x|vs\\.?)\\s+".toRegex())
             .firstOrNull()
             ?.let { normalizeText(it) }
             ?: normalizeText(artist)
