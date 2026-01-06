@@ -11,16 +11,7 @@ import com.metrolist.music.constants.EnableBetterLyricsKey
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 
-import com.metrolist.music.utils.GlobalLog
-import android.util.Log
-
 object BetterLyricsProvider : LyricsProvider {
-    init {
-        BetterLyrics.logger = { message ->
-            GlobalLog.append(Log.INFO, "BetterLyrics", message)
-        }
-    }
-
     override val name = "BetterLyrics"
 
     override fun isEnabled(context: Context): Boolean = context.dataStore[EnableBetterLyricsKey] ?: true
