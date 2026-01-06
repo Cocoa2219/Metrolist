@@ -116,7 +116,7 @@ object TTMLParser {
                     lines.add(
                         ParsedLine(
                             text = lineText.toString(),
-                            startTime = startTime,
+                            startTime = lineStartTime,
                             words = words
                         )
                     )
