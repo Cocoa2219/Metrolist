@@ -444,7 +444,7 @@ fun ExperimentalLyrics(
         }
     }
 
-    LaunchedEffect(isSeeking, lastPreviewTime) {
+        LaunchedEffect(isSeeking, lastPreviewTime) {
         if (isSeeking) {
             lastPreviewTime = 0L
         } else if (lastPreviewTime != 0L) {
@@ -469,19 +469,47 @@ fun ExperimentalLyrics(
         selectedIndices.clear()
         previousScrollActiveIndices = emptySet()
     }
-    
+
     var flingJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val velocityTracker = remember { VelocityTracker() }
     val decayAnimSpec = remember { exponentialDecay<Float>(frictionMultiplier = 1.8f) }
     val itemHeights = remember(lyrics, mergedLyricsList) { mutableStateMapOf<Int, Int>() }
     var isInitialLayout by remember(lyrics, mergedLyricsList) { mutableStateOf(true) }
-
-    val activeListIndex by remember(mergedLyricsList, deferredCurrentLineIndex) {
+    
+    val scrollTargetListIndex by remember(
+        mergedLyricsList,
+        activeLineIndices,
+        deferredCurrentLineIndex,
+        currentPositionState,
+    ) {
         derivedStateOf {
-            mergedLyricsList.indexOfFirst { 
-                (it is LyricsListItem.Line && it.index == deferredCurrentLineIndex) ||
-                (it is LyricsListItem.Indicator && it.afterLineIndex == deferredCurrentLineIndex)
-            }.coerceAtLeast(0)
+            val activeLineListIndex = if (activeLineIndices.isEmpty()) {
+                -1
+            } else {
+                mergedLyricsList.indexOfFirst {
+                    it is LyricsListItem.Line && it.index == deferredCurrentLineIndex
+                }
+            }
+
+            if (activeLineListIndex >= 0) {
+                activeLineListIndex
+            } else {
+                mergedLyricsList.indexOfFirst { item ->
+                    item is LyricsListItem.Indicator &&
+                        currentPositionState >= item.gapStartMs &&
+                        currentPositionState <= item.gapEndMs - 650L
+                }.takeIf { it >= 0 }
+            }
+        }
+    }
+    var activeListIndex by remember(lyrics) { mutableIntStateOf(0) }
+
+    LaunchedEffect(scrollTargetListIndex, mergedLyricsList.lastIndex) {
+        val targetListIndex = scrollTargetListIndex
+        if (targetListIndex != null) {
+            activeListIndex = targetListIndex
+        } else if (mergedLyricsList.isNotEmpty()) {
+            activeListIndex = activeListIndex.coerceIn(0, mergedLyricsList.lastIndex)
         }
     }
 
