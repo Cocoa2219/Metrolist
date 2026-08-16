@@ -201,13 +201,13 @@ class InnerTube {
         continuation: String? = null,
     ) = withRetry {
         httpClient.post("search") {
-            ytClient(client, setLogin = false)
+            ytClient(client, setLogin = useLoginForBrowse)
             setBody(
                 SearchBody(
                     context = client.toContext(
                         locale,
                         visitorData,
-                        null
+                        if (useLoginForBrowse) dataSyncId else null
                     ),
                     query = query,
                     params = params
