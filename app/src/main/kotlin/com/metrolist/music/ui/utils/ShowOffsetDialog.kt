@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -27,7 +28,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +47,7 @@ import kotlinx.coroutines.FlowPreview
 @Composable
 fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
     val database = LocalDatabase.current
+    val focusManager = LocalFocusManager.current
     val song = songProvider()
     var lyricsOffset by rememberSaveable { mutableIntStateOf(song?.lyricsOffset ?: 0) }
     var textFieldValue by rememberSaveable { mutableStateOf(lyricsOffset.toString()) }
@@ -65,6 +69,13 @@ fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
                 )
             }
         }
+    }
+
+    fun commitTextFieldValue() {
+        val parsed = textFieldValue.toIntOrNull() ?: 0
+        val clamped = parsed.coerceIn(-9999, 9999)
+        lyricsOffset = clamped
+        textFieldValue = clamped.toString()
     }
 
     Column(
@@ -102,37 +113,10 @@ fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
                         it.isDigit() || (it == '-' && newText.indexOf('-') == 0)
                     }
 
-                    val limited = if (sanitized.startsWith('-')) {
+                    textFieldValue = if (sanitized.startsWith('-')) {
                         sanitized.take(6)
                     } else {
                         sanitized.take(5)
-                    }
-
-                    textFieldValue = limited
-
-                    when {
-                        limited.isEmpty() -> {
-                            lyricsOffset = 0
-                            textFieldValue = "0"
-                        }
-
-                        limited == "-" -> {
-                        }
-
-                        else -> {
-                            limited.toIntOrNull()?.let { parsedValue ->
-                                val clampedValue = parsedValue.coerceIn(-9999, 9999)
-                                lyricsOffset = clampedValue
-
-                                if (parsedValue != clampedValue) {
-                                    textFieldValue = clampedValue.toString()
-                                }
-
-                                if (clampedValue == 0 && limited.startsWith('-')) {
-                                    textFieldValue = "0"
-                                }
-                            }
-                        }
                     }
                 },
                 singleLine = true,
@@ -140,7 +124,13 @@ fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
                     textAlign = TextAlign.Center,
                     fontWeight = FontWeight.Bold
                 ),
-                modifier = Modifier.widthIn(min = 120.dp, max = 160.dp),
+                modifier = Modifier
+                    .widthIn(min = 140.dp, max = 200.dp)
+                    .onFocusChanged { focusState ->
+                        if (!focusState.isFocused) {
+                            commitTextFieldValue()
+                        }
+                    },
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
@@ -153,6 +143,12 @@ fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
                     imeAction = ImeAction.Done
+                ),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        commitTextFieldValue()
+                        focusManager.clearFocus()
+                    }
                 )
             )
 
