@@ -18,11 +18,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -49,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
@@ -86,6 +89,7 @@ import com.metrolist.music.ui.component.CastButton
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.delay
+import timber.log.Timber
 
 /**
  * Pre-calculated thumbnail dimensions to avoid repeated calculations during recomposition.
@@ -507,6 +511,16 @@ private fun ThumbnailItem(
     var skipMultiplier by remember { mutableIntStateOf(1) }
     var lastTapTime by remember { mutableLongStateOf(0L) }
 
+    val artworkUriToUse = if (
+        item.mediaId == currentMediaId &&
+        !currentMediaThumbnail.isNullOrBlank()
+    ) {
+        currentMediaThumbnail
+    } else {
+        item.mediaMetadata.artworkUri?.toString()
+    }
+    var imageAspectRatio by remember(artworkUriToUse) { mutableStateOf<Float?>(null) }
+
     Box(
         modifier = modifier
             .then(
@@ -556,9 +570,22 @@ private fun ThumbnailItem(
             },
         contentAlignment = Alignment.Center
     ) {
+        val ratio = imageAspectRatio
+        val sizingModifier = if (hidePlayerThumbnail || cropAlbumArt || ratio == null) {
+            Timber.tag("Thumbnail").d("Using ${dimensions.thumbnailSize} squared")
+            Modifier.size(dimensions.thumbnailSize)
+        } else {
+            Timber.tag("Thumbnail").d("Using ${dimensions.thumbnailSize} with ratio $ratio")
+            Modifier
+                .sizeIn(
+                    maxWidth = dimensions.thumbnailSize,
+                    maxHeight = dimensions.thumbnailSize
+                )
+                .aspectRatio(ratio)
+        }
+
         Box(
-            modifier = Modifier
-                .size(dimensions.thumbnailSize)
+            modifier = sizingModifier
                 .clip(RoundedCornerShape(dimensions.cornerRadius))
         ) {
             if (hidePlayerThumbnail) {
@@ -572,7 +599,10 @@ private fun ThumbnailItem(
 
                 ThumbnailImage(
                     artworkUri = artworkUriToUse,
-                    cropArtwork = cropAlbumArt
+                    cropArtwork = cropAlbumArt,
+                    onAspectRatioAvailable = { ratio ->
+                        imageAspectRatio = ratio
+                    }
                 )
             }
             
@@ -616,6 +646,7 @@ private fun HiddenThumbnailPlaceholder(
 private fun ThumbnailImage(
     artworkUri: String?,
     cropArtwork: Boolean,
+    onAspectRatioAvailable: (Float?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -636,6 +667,17 @@ private fun ThumbnailImage(
                 .build(),
             contentDescription = null,
             contentScale = if (cropArtwork) ContentScale.Crop else ContentScale.Fit,
+            onState = { state ->
+                Timber.tag("Thumbnail").d("AsyncImagePainter State: $state")
+
+                if (state is coil3.compose.AsyncImagePainter.State.Success) {
+                    val size = state.painter.intrinsicSize
+                    Timber.tag("Thumbnail").d("AsyncImagePainter Size: ${size.isSpecified}, ${size.width}, ${size.height}")
+                    if (size.isSpecified && size.width > 0f && size.height > 0f) {
+                        onAspectRatioAvailable(size.width / size.height)
+                    }
+                }
+            },
             modifier = Modifier.fillMaxSize()
         )
     }
