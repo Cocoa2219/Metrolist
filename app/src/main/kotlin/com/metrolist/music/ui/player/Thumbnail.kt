@@ -89,7 +89,6 @@ import com.metrolist.music.ui.component.CastButton
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.delay
-import timber.log.Timber
 
 /**
  * Pre-calculated thumbnail dimensions to avoid repeated calculations during recomposition.
@@ -572,10 +571,8 @@ private fun ThumbnailItem(
     ) {
         val ratio = imageAspectRatio
         val sizingModifier = if (hidePlayerThumbnail || cropAlbumArt || ratio == null) {
-            Timber.tag("Thumbnail").d("Using ${dimensions.thumbnailSize} squared")
             Modifier.size(dimensions.thumbnailSize)
         } else {
-            Timber.tag("Thumbnail").d("Using ${dimensions.thumbnailSize} with ratio $ratio")
             Modifier
                 .sizeIn(
                     maxWidth = dimensions.thumbnailSize,
@@ -668,11 +665,8 @@ private fun ThumbnailImage(
             contentDescription = null,
             contentScale = if (cropArtwork) ContentScale.Crop else ContentScale.Fit,
             onState = { state ->
-                Timber.tag("Thumbnail").d("AsyncImagePainter State: $state")
-
                 if (state is coil3.compose.AsyncImagePainter.State.Success) {
                     val size = state.painter.intrinsicSize
-                    Timber.tag("Thumbnail").d("AsyncImagePainter Size: ${size.isSpecified}, ${size.width}, ${size.height}")
                     if (size.isSpecified && size.width > 0f && size.height > 0f) {
                         onAspectRatioAvailable(size.width / size.height)
                     }
