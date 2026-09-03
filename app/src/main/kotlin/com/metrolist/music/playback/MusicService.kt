@@ -109,11 +109,6 @@ import com.metrolist.music.constants.AudioTrackPlaybackParamsKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.AutoLoadMoreKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
-import com.metrolist.music.constants.StreamSourceAndroidVRKey
-import com.metrolist.music.constants.StreamSourceTVHTML5Key
-import com.metrolist.music.constants.StreamSourceVisionOSKey
-import com.metrolist.music.constants.StreamSourceWebCreatorKey
-import com.metrolist.music.constants.StreamSourceWebRemixKey
 import com.metrolist.music.constants.AutoplayKey
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
@@ -278,6 +273,9 @@ class MusicService :
 
     @Inject
     lateinit var syncUtils: SyncUtils
+
+    @Inject
+    lateinit var downloadUtil: DownloadUtil
 
     @Inject
     lateinit var mediaLibrarySessionCallback: MediaLibrarySessionCallback
@@ -1171,24 +1169,6 @@ class MusicService :
         scope.launch {
             dataStore.data.map { it[AutoLoadMoreKey] ?: true }.distinctUntilChanged().collect { cachedAutoLoadMore = it }
         }
-        // Keep InnerTubeX extraction in sync with the stream source toggles.
-        // Map to the derived set + distinctUntilChanged so an unrelated preference write doesn't
-        // rebuild the set and rewrite the @Volatile field on every DataStore emission.
-        scope.launch {
-            dataStore.data
-                .map { prefs ->
-                    buildSet {
-                        if (prefs[StreamSourceWebRemixKey] == false) add("WEB_REMIX")
-                        if (prefs[StreamSourceTVHTML5Key] == false) add("TVHTML5")
-                        if (prefs[StreamSourceAndroidVRKey] == false) add("ANDROID_VR")
-                        if (prefs[StreamSourceVisionOSKey] == false) add("VISIONOS")
-                        if (prefs[StreamSourceWebCreatorKey] == false) add("WEB_CREATOR")
-                    }
-                }
-                .distinctUntilChanged()
-                .collect { InnerTubeXPlayer.disabledStreamClients = it }
-        }
-
         if (startupPrefs!![PersistentQueueKey] ?: true) {
             val queueFile = filesDir.resolve(PERSISTENT_QUEUE_FILE)
             if (queueFile.exists()) {
@@ -1480,8 +1460,6 @@ class MusicService :
         runCatching { filesDir.resolve(PERSISTENT_AUTOMIX_FILE).delete() }
         runCatching { filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE).delete() }
     }
-
-    fun hasAudioFocusForPlayback(): Boolean = hasAudioFocus
 
     private fun waitOnNetworkError() {
         if (waitingForNetworkConnection.value) return
@@ -1935,16 +1913,6 @@ class MusicService :
         }
     }
 
-    fun getAutomixAlbum(albumId: String) {
-        scope.launch(SilentHandler) {
-            YouTube
-                .album(albumId)
-                .onSuccess {
-                    getAutomix(it.album.playlistId)
-                }
-        }
-    }
-
     fun getAutomix(playlistId: String) {
         if (dataStore.get(SimilarContent, true) &&
             !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)
@@ -2197,18 +2165,7 @@ class MusicService :
                     syncUtils.likeSong(song)
 
                     if (dataStore.get(AutoDownloadOnLikeKey, false) && song.liked) {
-                        val downloadRequest =
-                            androidx.media3.exoplayer.offline.DownloadRequest
-                                .Builder(song.id, song.id.toUri())
-                                .setCustomCacheKey(song.id)
-                                .setData(song.title.toByteArray())
-                                .build()
-                        androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
-                            this@MusicService,
-                            ExoDownloadService::class.java,
-                            downloadRequest,
-                            false,
-                        )
+                        downloadUtil.download(song.id)
                     }
                 }
                 currentMediaMetadata.value = player.currentMetadata
@@ -3057,8 +3014,10 @@ class MusicService :
             }
         }
 
-        // For IO_BAD_HTTP_STATUS, try recovery first
-        if (error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
+        // Transient source failures can surface without a more specific I/O code.
+        if (error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS
+        ) {
             Timber.tag(TAG).d("IO error detected (${error.errorCode}), attempting recovery")
             handleGenericIOError(mediaId)
             return
@@ -4643,23 +4602,6 @@ class MusicService :
         widgetUpdateJob = null
     }
 
-    private fun shareSong() {
-        val songData = currentSong.value
-        val songId = songData?.song?.id ?: return
-
-        val shareIntent =
-            Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_TEXT, "https://music.youtube.com/watch?v=$songId")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-        startActivity(
-            Intent.createChooser(shareIntent, null).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            },
-        )
-    }
-
     /**
      * Get the stream URL for a given media ID.
      * This is used for Google Cast to send the audio URL to Chromecast.
@@ -4750,16 +4692,12 @@ class MusicService :
     private fun startCrossfade() {
         if (isCrossfading) return
 
-
-
-        // Preserve player state before creating the secondary player
-        // Use runBlocking to ensure we get the correct state from DataStore
-        val savedRepeatMode = runBlocking { dataStore.get(RepeatModeKey, REPEAT_MODE_OFF) }
-        val savedShuffleEnabled = runBlocking { dataStore.get(ShuffleModeKey, false) }
+        val repeatMode = player.repeatMode
+        val shuffleModeEnabled = player.shuffleModeEnabled
 
         // For repeat-one, crossfade back into the same track
         val targetIndex =
-            if (savedRepeatMode == REPEAT_MODE_ONE) {
+            if (repeatMode == REPEAT_MODE_ONE) {
                 player.currentMediaItemIndex
             } else {
                 player.nextMediaItemIndex
@@ -4782,8 +4720,8 @@ class MusicService :
 
         secPlayer.setPlaybackParameters(player.playbackParameters)
 
-        secPlayer.repeatMode = savedRepeatMode
-        secPlayer.shuffleModeEnabled = savedShuffleEnabled
+        secPlayer.repeatMode = repeatMode
+        secPlayer.shuffleModeEnabled = shuffleModeEnabled
         secPlayer.playbackParameters = player.playbackParameters
 
         try {
@@ -4799,7 +4737,7 @@ class MusicService :
 
         performCrossfadeSwap()
 
-        if (savedShuffleEnabled) {
+        if (shuffleModeEnabled) {
             val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
             applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
         }
@@ -4815,6 +4753,9 @@ class MusicService :
         _playerFlow.value = player
         secondaryPlayer = null
 
+        // Do not persist the retired player's temporary repeat-off state.
+        fadingPlayer?.removeListener(this)
+        sleepTimer?.let { timer -> fadingPlayer?.removeListener(timer) }
         fadingPlayer?.repeatMode = Player.REPEAT_MODE_OFF
         fadingPlayer?.let {
             val currentIndex = it.currentMediaItemIndex
@@ -4822,9 +4763,6 @@ class MusicService :
                 it.removeMediaItems(currentIndex + 1, it.mediaItemCount)
             }
         }
-
-        fadingPlayer?.removeListener(this)
-        sleepTimer?.let { timer -> fadingPlayer?.removeListener(timer) }
 
         player.addListener(
             object : Player.Listener {
