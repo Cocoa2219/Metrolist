@@ -11,6 +11,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -60,6 +62,7 @@ object OpenRouterService {
                             model = model,
                             mode = mode,
                             customSystemPrompt = customSystemPrompt,
+                            baseUrl = baseUrl.ifBlank { OpenRouterDefaultBaseUrl },
                         )
                     val request =
                         Request
@@ -114,19 +117,20 @@ internal fun buildTranslationRequest(
     model: String,
     mode: String,
     customSystemPrompt: String,
+    baseUrl: String = OpenRouterDefaultBaseUrl,
     stream: Boolean = false,
 ): JsonObject {
     val lineCount = text.lines().size
     val systemPrompt =
         customSystemPrompt.takeIf(String::isNotBlank)?.replace("{lineCount}", lineCount.toString())
-            ?: """You are a precise lyrics translation assistant. Your output must ALWAYS be a valid JSON array of strings.
+            ?: """You are a precise lyrics translation assistant. Your output must ALWAYS be a valid JSON object of the form {"lines": ["line1", "line2", "line3"].
 
 CRITICAL RULES:
-1. Output ONLY a JSON array: ["line1", "line2", "line3"]
+1. Output ONLY the JSON object: {"lines": ["line1", "line2", "line3"]}
 2. NO explanations, NO questions, NO additional text
-3. Each input line maps to exactly one output line
+3. Each input line maps to exactly one entry in the "lines" array
 4. Preserve empty lines as empty strings ""
-5. Return EXACTLY $lineCount items in the array
+5. The "lines" array must contain EXACTLY $lineCount items
 6. If uncertain, provide best approximation but maintain line count"""
     val userPrompt =
         when (mode) {
@@ -151,7 +155,7 @@ Examples of correct simple romanization:
 Input ($lineCount lines):
 $text
 
-Output MUST be a JSON array with EXACTLY $lineCount strings using ONLY simple ASCII characters."""
+Output MUST be a JSON object {"lines": [...]} with EXACTLY $lineCount strings using ONLY simple ASCII characters."""
             }
 
             "Transcribed" -> {
@@ -174,7 +178,7 @@ Examples:
 Input ($lineCount lines):
 $text
 
-Output MUST be a JSON array with EXACTLY $lineCount strings in $targetLanguage script."""
+Output MUST be a JSON object {"lines": [...]} with EXACTLY $lineCount strings in $targetLanguage script."""
             }
 
             else -> {
@@ -190,7 +194,7 @@ IMPORTANT:
 Input ($lineCount lines):
 $text
 
-Output MUST be a JSON array with EXACTLY $lineCount strings."""
+Output MUST be a JSON object {"lines": [...]} with EXACTLY $lineCount strings."""
             }
         }
 
@@ -215,6 +219,63 @@ Output MUST be a JSON array with EXACTLY $lineCount strings."""
         if (model.isNotBlank()) put("model", model)
         put("temperature", 0.3)
         put("max_tokens", lineCount * 100)
+        put(
+            "response_format",
+            buildJsonObject {
+                put("type", "json_schema")
+                put(
+                    "json_schema",
+                    buildJsonObject {
+                        put("name", "translated_lyrics")
+                        put("strict", true)
+                        put(
+                            "schema",
+                            buildJsonObject {
+                                put("type", "object")
+                                put(
+                                    "properties",
+                                    buildJsonObject {
+                                        put(
+                                            "lines",
+                                            buildJsonObject {
+                                                put("type", "array")
+                                                put(
+                                                    "description",
+                                                    "Translated lines, one per input line, empty lines preserved as empty strings",
+                                                )
+                                                put(
+                                                    "items",
+                                                    buildJsonObject {
+                                                        put("type", "string")
+                                                    },
+                                                )
+                                            },
+                                        )
+                                    },
+                                )
+                                put(
+                                    "required",
+                                    buildJsonArray {
+                                        add("lines")
+                                    },
+                                )
+                                put("additionalProperties", false)
+                            },
+                        )
+                    },
+                )
+            },
+        )
+        // OpenRouter-only routing preference; fail instead of silently degrading to
+        // unvalidated JSON on endpoints without structured-output support
+        if (baseUrl.contains("openrouter.ai")) {
+            put(
+                "provider",
+                buildJsonObject {
+                    put("require_parameters", true)
+                },
+            )
+        }
         if (stream) put("stream", true)
     }
 }
@@ -235,9 +296,7 @@ internal fun parseTranslationContent(
             sequenceOf(content.trim(), cleaned, bracketed)
                 .filterNotNull()
                 .mapNotNull { candidate ->
-                    runCatching {
-                        translationJson.parseToJsonElement(candidate).jsonArray.map { it.jsonPrimitive.content }
-                    }.getOrNull()
+                    runCatching { extractLines(translationJson.parseToJsonElement(candidate)) }.getOrNull()
                 }.firstOrNull()
                 ?: cleaned
                     .lines()
@@ -247,6 +306,15 @@ internal fun parseTranslationContent(
                 ?: error("Failed to parse translation")
 
         translatedLines.take(expectedLineCount) + List((expectedLineCount - translatedLines.size).coerceAtLeast(0)) { "" }
+    }
+
+private fun extractLines(element: JsonElement): List<String>? =
+    when (element) {
+        // structured-output schema shape
+        is JsonObject -> (element["lines"] as? JsonArray)?.map { it.jsonPrimitive.content }
+        // legacy lenient path: bare arrays from models/providers that ignore the schema
+        is JsonArray -> element.map { it.jsonPrimitive.content }
+        else -> null
     }
 
 internal fun apiErrorMessage(

@@ -133,6 +133,8 @@
     <string name="enable_lrclib_desc">Community-driven synchronized lyrics database</string>
     <string name="enable_kugou_desc">Pulls lyrics from KuGou, a popular Chinese music platform</string>
     <string name="youtube_music_lyrics_note">NOTE: YouTube Music lyrics will be shown automatically when no other source is available. They are usually not synchronized</string>
+    <string name="enable_zemer">Enable Zemer</string>
+    <string name="enable_zemer_desc">Lyrics for Jewish music</string>
     <string name="enable_better_lyrics">Enable Better Lyrics</string>
     <string name="enable_better_lyrics_desc">Syllable-synced lyrics for any song, perfect for karaoke</string>
     <string name="enable_paxsenix">Enable Paxsenix</string>
@@ -217,6 +219,7 @@
     <string name="import_online">Import an M3U playlist</string>
     <string name="import_csv">Import a CSV playlist</string>
     <string name="playlist_unavailable">Playlist unavailable</string>
+    <string name="playlist_created_locally">YouTube sync failed. Playlist created locally.</string>
     <string name="playlist_add_local_to_synced_note">NOTE: Adding local songs to synced or remote playlists is not supported. Any other combination is valid</string>
     <string name="export_playlist">Export playlist</string>
     <string name="export_as_csv">Export as CSV</string>
@@ -370,12 +373,14 @@
     <string name="updater">Updater</string>
     <string name="check_for_updates">Automatically check for updates</string>
     <string name="update_notifications">Enable update notifications</string>
-    <string name="update_available_title">Update available</string>
+    <string name="update_available_title">New update available</string>
+    <string name="update_available_message">Metrolist %s is ready to download.</string>
+    <string name="update_action">Update</string>
     <string name="update_channel_name">App updates</string>
     <string name="update_channel_desc">Notifications about new app versions</string>
     <string name="kmp_upgrade_title">Metrolist KMP %s is available</string>
-    <string name="kmp_upgrade_warning">Metrolist KMP is in early access. Features may be broken, incomplete, or change without notice.</string>
-    <string name="kmp_upgrade_action">Upgrade to KMP</string>
+    <string name="kmp_upgrade_warning">Metrolist KMP is still in development. You may encounter bugs or incomplete features.</string>
+    <string name="kmp_upgrade_action">Try KMP</string>
     <string name="kmp_upgrade_later">Not now</string>
 
     <!-- Offload -->
@@ -693,6 +698,7 @@
     <string name="ai_provider_xai_help">Visit https://console.x.ai</string>
     <string name="ai_provider_deepl_help">Visit https://deepl.com/pro-api for free and paid keys</string>
     <string name="ai_provider_mistral_help">Visit https://console.mistral.ai/api-keys</string>
+    <string name="ai_provider_inception_help">Visit https://platform.inceptionlabs.ai for API keys</string>
     <string name="ai_deepl_formality">Formality</string>
     <string name="ai_deepl_formality_default">Default</string>
     <string name="ai_deepl_formality_more">More formal</string>

@@ -175,7 +175,13 @@ jobs:
   create-release:
     needs: [check-version, build]
     if: needs.check-version.outputs.version_changed == 'true' || github.event_name == 'workflow_dispatch'
+<<<<<<< HEAD
     runs-on: ubuntu-latest
+=======
+    permissions:
+      contents: write
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+>>>>>>> 7c5ba3ad22cb562d337897f82163a2b7fce665f3
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
@@ -220,7 +226,7 @@ jobs:
 
       - name: Create Release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "Creating release v${{ needs.check-version.outputs.new_version }}"
 

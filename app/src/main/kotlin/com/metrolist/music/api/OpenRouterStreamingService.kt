@@ -57,6 +57,7 @@ object OpenRouterStreamingService {
                         model = model,
                         mode = mode,
                         customSystemPrompt = customSystemPrompt,
+                        baseUrl = baseUrl.ifBlank { OpenRouterDefaultBaseUrl },
                         stream = true,
                     )
                 val request =

@@ -112,16 +112,6 @@ interface DatabaseDao {
     )
     suspend fun playlistSongIdsWithoutArtists(playlistId: String): List<String>
 
-    @Query(
-        """
-        SELECT song.id FROM song
-        JOIN playlist_song_map ON playlist_song_map.songId = song.id
-        WHERE playlist_song_map.playlistId = :playlistId
-          AND (song.isDownloaded = 1 OR song.dateDownload IS NOT NULL)
-        """,
-    )
-    suspend fun downloadedPlaylistSongIds(playlistId: String): List<String>
-
     @Query("SELECT * FROM album WHERE id = :albumId LIMIT 1")
     suspend fun albumEntity(albumId: String): AlbumEntity?
 
