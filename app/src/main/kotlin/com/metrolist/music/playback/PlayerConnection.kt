@@ -31,6 +31,7 @@ import com.metrolist.music.extensions.getQueueWindows
 import com.metrolist.music.extensions.metadata
 import com.metrolist.music.extensions.togglePlayPause
 import com.metrolist.music.extensions.withUpdatedMetadata
+import com.metrolist.music.playback.queues.isUserQueued
 import com.metrolist.music.models.toMediaMetadata
 import com.metrolist.music.playback.MusicService.MusicBinder
 import com.metrolist.music.playback.queues.Queue
@@ -182,6 +183,9 @@ class PlayerConnection(
     val currentMediaItemIndex = MutableStateFlow(-1)
     val currentWindowIndex = MutableStateFlow(-1)
 
+    /** Number of user-queued songs following the current one in [queueWindows]. */
+    val userQueueSize = MutableStateFlow(0)
+
     val shuffleModeEnabled = MutableStateFlow(false)
     val repeatMode = MutableStateFlow(REPEAT_MODE_OFF)
 
@@ -218,6 +222,11 @@ class PlayerConnection(
         if (attachedPlayer == null && readyPlayer != null) {
             updateAttachedPlayer(readyPlayer)
         }
+        scope.launch {
+            service.userQueueVersion.collect {
+                getPlayerOrNull()?.let(::refreshQueue)
+            }
+        }
 
         Timber.tag(TAG).d("PlayerConnection flow observer registered; playerReady=${playerReadinessFlow.value}")
     }
@@ -231,12 +240,24 @@ class PlayerConnection(
         playWhenReady.value = newPlayer.playWhenReady
         mediaMetadata.value = newPlayer.currentMetadata
         queueTitle.value = service.queueTitle
-        queueWindows.value = newPlayer.getQueueWindows()
-        currentWindowIndex.value = newPlayer.getCurrentQueueIndex()
+        refreshQueue(newPlayer)
         currentMediaItemIndex.value = newPlayer.currentMediaItemIndex
         shuffleModeEnabled.value = newPlayer.shuffleModeEnabled
         repeatMode.value = newPlayer.repeatMode
         Timber.tag(TAG).d("Attached to new player instance: $newPlayer")
+    }
+
+    private fun refreshQueue(player: Player) {
+        val windows = player.getQueueWindows()
+        val currentIndex = player.getCurrentQueueIndex()
+        queueWindows.value = windows
+        currentWindowIndex.value = currentIndex
+        userQueueSize.value =
+            if (currentIndex < 0) {
+                0
+            } else {
+                windows.drop(currentIndex + 1).takeWhile { it.mediaItem.isUserQueued }.size
+            }
     }
 
     fun playQueue(queue: Queue) {
@@ -315,6 +336,37 @@ class PlayerConnection(
             Timber.tag(TAG).e(e, "Error in addToQueue")
             throw e
         }
+    }
+
+    private fun canEditQueue(action: String): Boolean {
+        if (!allowInternalSync && shouldBlockPlaybackChanges?.invoke() == true) {
+            Timber.tag(TAG).d("$action blocked - Listen Together guest")
+            return false
+        }
+        return true
+    }
+
+    fun clearUserQueue() {
+        if (canEditQueue("clearUserQueue")) service.clearUserQueue()
+    }
+
+    fun skipToQueueItem(index: Int) {
+        if (canEditQueue("skipToQueueItem")) service.skipToQueueItem(index)
+    }
+
+    fun moveQueueItem(
+        from: Int,
+        to: Int,
+        toUserQueue: Boolean,
+    ) {
+        if (canEditQueue("moveQueueItem")) service.moveQueueItem(from, to, toUserQueue)
+    }
+
+    fun restoreQueueItem(
+        index: Int,
+        item: MediaItem,
+    ) {
+        if (canEditQueue("restoreQueueItem")) service.restoreQueueItem(index, item)
     }
 
     fun toggleLike() {
@@ -624,17 +676,15 @@ class PlayerConnection(
         timeline: Timeline,
         reason: Int,
     ) {
-        queueWindows.value = player.getQueueWindows()
+        refreshQueue(player)
         queueTitle.value = service.queueTitle
         currentMediaItemIndex.value = player.currentMediaItemIndex
-        currentWindowIndex.value = player.getCurrentQueueIndex()
         updateCanSkipPreviousAndNext()
     }
 
     override fun onShuffleModeEnabledChanged(enabled: Boolean) {
         shuffleModeEnabled.value = enabled
-        queueWindows.value = player.getQueueWindows()
-        currentWindowIndex.value = player.getCurrentQueueIndex()
+        refreshQueue(player)
         updateCanSkipPreviousAndNext()
     }
 
