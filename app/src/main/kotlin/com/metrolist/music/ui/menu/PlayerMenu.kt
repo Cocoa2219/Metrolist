@@ -91,7 +91,9 @@ import com.metrolist.music.playback.ExoDownloadService
 import com.metrolist.music.db.entities.Song
 import com.metrolist.music.db.entities.SpeedDialItem
 import com.metrolist.music.ui.component.BottomSheetState
+import com.metrolist.music.ui.component.Comments
 import com.metrolist.music.ui.component.ListDialog
+import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.Material3MenuGroup
 import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.NewAction
@@ -116,6 +118,7 @@ fun PlayerMenu(
     val navController = LocalNavController.current
     val context = LocalContext.current
     val database = LocalDatabase.current
+    val bottomSheetPageState = LocalBottomSheetPageState.current
     val playerConnection = LocalPlayerConnection.current ?: return
     val playerVolume = playerConnection.service.playerVolume.collectAsStateWithLifecycle()
 
@@ -668,6 +671,22 @@ fun PlayerMenu(
                                 },
                                 onClick = {
                                     onShowDetailsDialog()
+                                    onDismiss()
+                                },
+                            ),
+                        )
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(text = stringResource(R.string.comments)) },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.comment),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp),
+                                    )
+                                },
+                                onClick = {
+                                    bottomSheetPageState.show { Comments(mediaMetadata.id) }
                                     onDismiss()
                                 },
                             ),

@@ -34,6 +34,7 @@ import com.metrolist.innertube.models.splitBySeparator
 import com.metrolist.innertube.utils.parseTime
 import com.metrolist.innertube.models.response.AccountMenuResponse
 import com.metrolist.innertube.models.response.BrowseResponse
+import com.metrolist.innertube.models.response.CommentsResponse
 import com.metrolist.innertube.models.response.CreatePlaylistResponse
 import com.metrolist.innertube.models.response.EditPlaylistResponse
 import com.metrolist.innertube.models.response.FeedbackResponse
@@ -3104,6 +3105,32 @@ object YouTube {
                             .trim(' ')
                     "[%02d:%02d.%03d]$text".format(time / 60000, (time / 1000) % 60, time % 1000)
                 }!!
+        }
+
+    // ponytail: first page only (~20 comments), follow the trailing continuationItemRenderer if paging is needed
+    suspend fun comments(videoId: String): Result<List<CommentsResponse.Comment>> =
+        runCatching {
+            val token =
+                innerTube
+                    .next(WEB, videoId, null, null, null, null)
+                    .body<NextResponse>()
+                    .contents.twoColumnWatchNextResults
+                    ?.results
+                    ?.results
+                    ?.content
+                    ?.firstNotNullOfOrNull { content ->
+                        content?.itemSectionRenderer?.contents?.firstNotNullOfOrNull {
+                            it?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token
+                        }
+                    } ?: return@runCatching emptyList()
+            innerTube
+                .next(WEB, null, null, null, null, null, token)
+                .body<CommentsResponse>()
+                .frameworkUpdates
+                ?.entityBatchUpdate
+                ?.mutations
+                ?.mapNotNull { it.payload?.commentEntityPayload }
+                .orEmpty()
         }
 
     suspend fun visitorData(): Result<String> =
