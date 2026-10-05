@@ -199,6 +199,14 @@ import com.metrolist.music.playback.alarm.MusicAlarmStore
 import com.metrolist.music.playback.audio.SilenceDetectorAudioProcessor
 import com.metrolist.music.playback.queues.EmptyQueue
 import com.metrolist.music.playback.queues.ListQueue
+import com.metrolist.music.playback.queues.QueueSection
+import com.metrolist.music.playback.queues.arrangeUserQueue
+import com.metrolist.music.playback.queues.isUserQueued
+import com.metrolist.music.playback.queues.playbackOrder
+import com.metrolist.music.playback.queues.queueSection
+import com.metrolist.music.playback.queues.upcomingUserQueue
+import com.metrolist.music.playback.queues.userQueueSize
+import com.metrolist.music.playback.queues.withQueueSection
 import com.metrolist.music.playback.queues.Queue
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.playback.queues.YouTubePlaylistQueue
@@ -469,6 +477,9 @@ class MusicService :
     private var scrobbleManager: ScrobbleManager? = null
 
     val automixItems = MutableStateFlow<List<MediaItem>>(emptyList())
+
+    // Bumped when user queue sections change; tag-only MediaItem updates don't fire onTimelineChanged.
+    val userQueueVersion = MutableStateFlow(0)
 
     // Tracks the original queue size to distinguish original items from auto-added ones
     private var originalQueueSize: Int = 0
@@ -1189,7 +1200,7 @@ class MusicService :
                     }
                 }.onSuccess { queue ->
                     runCatching {
-                        val restoredQueue = queue.toQueue()
+                        val restoredQueue = queue.toQueue().withQueueSections(readPersistedQueueSections())
                         scope.launch {
                             playerInitialized.first { it }
                             if (isActive) {
@@ -1465,10 +1476,28 @@ class MusicService :
         }
     }
 
+    private fun readPersistedQueueSections(): IntArray? =
+        runCatching {
+            filesDir.resolve(PERSISTENT_QUEUE_SECTIONS_FILE).inputStream().use { fis ->
+                ObjectInputStream(fis).use { it.readObject() as IntArray }
+            }
+        }.getOrNull()
+
+    private fun Queue.withQueueSections(sections: IntArray?): Queue {
+        if (this !is ListQueue || sections?.size != items.size) return this
+        return ListQueue(
+            title = title,
+            items = items.mapIndexed { index, item -> item.withQueueSection(sections[index]) },
+            startIndex = startIndex,
+            position = position,
+        )
+    }
+
     private fun clearPersistedQueueFiles() {
         runCatching { filesDir.resolve(PERSISTENT_QUEUE_FILE).delete() }
         runCatching { filesDir.resolve(PERSISTENT_AUTOMIX_FILE).delete() }
         runCatching { filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE).delete() }
+        runCatching { filesDir.resolve(PERSISTENT_QUEUE_SECTIONS_FILE).delete() }
     }
 
     private fun waitOnNetworkError() {
@@ -1777,7 +1806,9 @@ class MusicService :
         }
         originalQueueSize = 0
         if (queue.preloadItem != null) {
+            val userQueue = if (restoringQueue) emptyList() else player.upcomingUserQueue()
             player.setMediaItem(queue.preloadItem!!.toMediaItem())
+            player.addMediaItems(userQueue)
             player.prepare()
             player.playWhenReady = playWhenReady
         }
@@ -1808,25 +1839,27 @@ class MusicService :
                     ),
                 )
             } else {
+                val userQueue = if (restoringQueue) emptyList() else player.upcomingUserQueue()
+                val startIndex = initialStatus.mediaItemIndex.coerceAtLeast(0)
                 player.setMediaItems(
-                    initialStatus.items,
-                    if (initialStatus.mediaItemIndex >
-                        0
-                    ) {
-                        initialStatus.mediaItemIndex
+                    // Items copied from an existing queue may still carry user queue sections.
+                    if (restoringQueue) {
+                        initialStatus.items
                     } else {
-                        0
+                        initialStatus.items.map { it.withQueueSection(QueueSection.NONE) }
                     },
+                    startIndex,
                     initialStatus.position,
                 )
+                player.addMediaItems(startIndex + 1, userQueue)
                 player.prepare()
                 player.playWhenReady = playWhenReady
             }
 
             if (player.shuffleModeEnabled) {
-                val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-                applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
+                applyShuffleOrder(dataStore.get(ShufflePlaylistFirstKey, false))
             }
+            userQueueVersion.value++
         }
     }
 
@@ -1844,7 +1877,6 @@ class MusicService :
 
         val currentMediaMetadata = player.currentMetadata ?: return
 
-        val currentIndex = player.currentMediaItemIndex
         val currentMediaId = currentMediaMetadata.id
 
         scope.launch(SilentHandler) {
@@ -1876,17 +1908,7 @@ class MusicService :
                     }
 
                 if (radioItems.isNotEmpty()) {
-                    val itemCount = player.mediaItemCount
-
-                    if (itemCount > currentIndex + 1) {
-                        player.removeMediaItems(currentIndex + 1, itemCount)
-                    }
-
-                    player.addMediaItems(currentIndex + 1, radioItems)
-                    if (player.shuffleModeEnabled) {
-                        val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-                        applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
-                    }
+                    replaceUpcomingContext(radioItems, dataStore.get(ShufflePlaylistFirstKey, false))
                 }
 
                 currentQueue = radioQueue
@@ -1910,24 +1932,28 @@ class MusicService :
                                     .filterVideoSongs(cachedHideVideoSongs)
 
                             if (radioItems.isNotEmpty()) {
-                                val itemCount = player.mediaItemCount
-                                if (itemCount > currentIndex + 1) {
-                                    player.removeMediaItems(currentIndex + 1, itemCount)
-                                }
-                                player.addMediaItems(currentIndex + 1, radioItems)
-                                if (player.shuffleModeEnabled) {
-                                    applyShuffleOrder(
-                                        player.currentMediaItemIndex,
-                                        player.mediaItemCount,
-                                        cachedShufflePlaylistFirst,
-                                    )
-                                }
+                                replaceUpcomingContext(radioItems, cachedShufflePlaylistFirst)
                             }
                         }
                     }
                 } catch (_: Exception) {
                 }
             }
+        }
+    }
+
+    /** Replaces the context after the current item and the user queue with [items]. */
+    private fun replaceUpcomingContext(
+        items: List<MediaItem>,
+        shufflePlaylistFirst: Boolean,
+    ) {
+        val keepUntil = player.currentMediaItemIndex + 1 + player.userQueueSize()
+        if (player.mediaItemCount > keepUntil) {
+            player.removeMediaItems(keepUntil, player.mediaItemCount)
+        }
+        player.addMediaItems(keepUntil, items)
+        if (player.shuffleModeEnabled) {
+            applyShuffleOrder(shufflePlaylistFirst)
         }
     }
 
@@ -2026,120 +2052,114 @@ class MusicService :
     fun playNext(items: List<MediaItem>) {
         // If queue is empty or player is idle, play immediately instead
         if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) {
-            player.setMediaItems(items)
+            player.setMediaItems(items.map { it.withQueueSection(QueueSection.NONE) })
             player.prepare()
             if (castConnectionHandler?.isCasting?.value != true) {
                 player.play()
             }
             return
         }
-
-        if (dataStore.get(PreventDuplicateTracksInQueueKey, false)) {
-            val itemIds = items.map { it.mediaId }.toSet()
-            val indicesToRemove = mutableListOf<Int>()
-            val currentIndex = player.currentMediaItemIndex
-
-            for (i in 0 until player.mediaItemCount) {
-                if (i != currentIndex && player.getMediaItemAt(i).mediaId in itemIds) {
-                    indicesToRemove.add(i)
-                }
-            }
-
-            // Remove from highest index to lowest to maintain index stability
-            indicesToRemove.sortedDescending().forEach { index ->
-                player.removeMediaItem(index)
-            }
-        }
-
-        val insertIndex = player.currentMediaItemIndex + 1
-        val shuffleEnabled = player.shuffleModeEnabled
-
-        // Insert items immediately after the current item in the window/index space
-        player.addMediaItems(insertIndex, items)
-        player.prepare()
-
-        if (shuffleEnabled) {
-            // Rebuild shuffle order so that newly inserted items are played next
-            val timeline = player.currentTimeline
-            if (!timeline.isEmpty) {
-                val size = timeline.windowCount
-                val currentIndex = player.currentMediaItemIndex
-
-                // Newly inserted indices are a contiguous range [insertIndex, insertIndex + items.size)
-                val newIndices = (insertIndex until (insertIndex + items.size)).toSet()
-
-                // Collect existing shuffle traversal order excluding current index
-                val orderAfter = mutableListOf<Int>()
-                var idx = currentIndex
-                while (true) {
-                    idx = timeline.getNextWindowIndex(idx, Player.REPEAT_MODE_OFF, /*shuffleModeEnabled=*/true)
-                    if (idx == C.INDEX_UNSET) break
-                    if (idx != currentIndex) orderAfter.add(idx)
-                }
-
-                val prevList = mutableListOf<Int>()
-                var pIdx = currentIndex
-                while (true) {
-                    pIdx = timeline.getPreviousWindowIndex(pIdx, Player.REPEAT_MODE_OFF, /*shuffleModeEnabled=*/true)
-                    if (pIdx == C.INDEX_UNSET) break
-                    if (pIdx != currentIndex) prevList.add(pIdx)
-                }
-                prevList.reverse() // preserve original forward order
-
-                val existingOrder = (prevList + orderAfter).filter { it != currentIndex && it !in newIndices }
-
-                // Build new shuffle order: current -> newly inserted (in insertion order) -> rest
-                val nextBlock = (insertIndex until (insertIndex + items.size)).toList()
-                val finalOrder = IntArray(size)
-                var pos = 0
-                prevList
-                    .filter { it !in newIndices }
-                    .forEach { if (it in 0 until size) finalOrder[pos++] = it }
-                finalOrder[pos++] = currentIndex
-                nextBlock.forEach { if (it in 0 until size) finalOrder[pos++] = it }
-                orderAfter
-                    .filter { it !in newIndices }
-                    .forEach { if (pos < size) finalOrder[pos++] = it }
-
-                // Fill any missing indices (safety) to ensure a full permutation
-                if (pos < size) {
-                    for (i in 0 until size) {
-                        if (!finalOrder.contains(i)) {
-                            finalOrder[pos++] = i
-                            if (pos == size) break
-                        }
-                    }
-                }
-
-                player.setShuffleOrder(DefaultShuffleOrder(finalOrder, System.currentTimeMillis()))
-            }
-        }
+        enqueue(items, atFront = true)
     }
 
     fun addToQueue(items: List<MediaItem>) {
+        if (player.mediaItemCount == 0) {
+            player.addMediaItems(items.map { it.withQueueSection(QueueSection.NONE) })
+            player.prepare()
+            return
+        }
+        enqueue(items, atFront = false)
+    }
+
+    /** Adds [items] to the front or the end of the user queue, which plays before the rest of the context. */
+    private fun enqueue(
+        items: List<MediaItem>,
+        atFront: Boolean,
+    ) {
         if (dataStore.get(PreventDuplicateTracksInQueueKey, false)) {
             val itemIds = items.map { it.mediaId }.toSet()
-            val indicesToRemove = mutableListOf<Int>()
             val currentIndex = player.currentMediaItemIndex
-
-            for (i in 0 until player.mediaItemCount) {
-                if (i != currentIndex && player.getMediaItemAt(i).mediaId in itemIds) {
-                    indicesToRemove.add(i)
-                }
-            }
-
             // Remove from highest index to lowest to maintain index stability
-            indicesToRemove.sortedDescending().forEach { index ->
-                player.removeMediaItem(index)
-            }
+            (player.mediaItemCount - 1 downTo 0)
+                .filter { it != currentIndex && player.getMediaItemAt(it).mediaId in itemIds }
+                .forEach { player.removeMediaItem(it) }
         }
 
-        player.addMediaItems(items)
-        if (player.shuffleModeEnabled) {
-            val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-            applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
-        }
+        val insertIndex = player.currentMediaItemIndex + 1 + if (atFront) 0 else player.userQueueSize()
+        player.addMediaItems(insertIndex, items.map { it.withQueueSection(QueueSection.QUEUED) })
+        player.arrangeUserQueue()
         player.prepare()
+        userQueueVersion.value++
+    }
+
+    fun clearUserQueue() {
+        val size = player.userQueueSize()
+        if (size == 0) return
+        val start = player.currentMediaItemIndex + 1
+        player.removeMediaItems(start, start + size)
+        userQueueVersion.value++
+    }
+
+    /**
+     * Plays the item at [index]. Jumping into the user queue drops the queued songs before it, while
+     * jumping anywhere else keeps the user queue up next.
+     */
+    fun skipToQueueItem(index: Int) {
+        if (index !in 0 until player.mediaItemCount) return
+        val current = player.currentMediaItemIndex
+        val target =
+            if (index in current + 1..current + player.userQueueSize()) {
+                player.removeMediaItems(current + 1, index)
+                current + 1
+            } else {
+                player.arrangeUserQueue(anchor = index)
+            }
+        player.seekToDefaultPosition(target)
+        player.playWhenReady = true
+        userQueueVersion.value++
+    }
+
+    /**
+     * Moves an item between positions in playback order, as shown in the queue. [toUserQueue] tells
+     * whether it was dropped into the user queue or into the context.
+     */
+    fun moveQueueItem(
+        from: Int,
+        to: Int,
+        toUserQueue: Boolean,
+    ) {
+        val order = player.playbackOrder().toMutableList()
+        if (from !in order.indices || to !in order.indices) return
+        val index = order[from]
+        if (index != player.currentMediaItemIndex) {
+            val item = player.getMediaItemAt(index)
+            val section =
+                when {
+                    toUserQueue -> QueueSection.QUEUED
+                    item.isUserQueued -> QueueSection.NONE
+                    else -> item.queueSection
+                }
+            player.replaceMediaItem(index, item.withQueueSection(section))
+        }
+        if (player.shuffleModeEnabled) {
+            order.add(to, order.removeAt(from))
+            player.setShuffleOrder(DefaultShuffleOrder(order.toIntArray(), System.currentTimeMillis()))
+            player.arrangeUserQueue(queueOrderFromPlayback = true)
+        } else {
+            player.moveMediaItem(from, to)
+            player.arrangeUserQueue()
+        }
+        userQueueVersion.value++
+    }
+
+    /** Puts back an item removed from the queue, e.g. on undo. */
+    fun restoreQueueItem(
+        index: Int,
+        item: MediaItem,
+    ) {
+        player.addMediaItem(index.coerceIn(0, player.mediaItemCount), item)
+        player.arrangeUserQueue()
+        userQueueVersion.value++
     }
 
     fun toggleLibrary() {
@@ -2544,6 +2564,8 @@ class MusicService :
                 player.seekTo(previousMediaItemIndex, 0)
             }
         }
+        player.arrangeUserQueue(consumeHistory = true)
+        userQueueVersion.value++
         previousMediaItemIndex = player.currentMediaItemIndex
 
         lastPlaybackSpeed = -1.0f // force update song
@@ -2588,7 +2610,7 @@ class MusicService :
                 if (player.playbackState != STATE_IDLE && mediaItems.isNotEmpty()) {
                     player.addMediaItems(mediaItems)
                     if (player.shuffleModeEnabled) {
-                        applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, cachedShufflePlaylistFirst)
+                        applyShuffleOrder(cachedShufflePlaylistFirst)
                     }
                 }
             }
@@ -2805,11 +2827,7 @@ class MusicService :
         if (shuffleModeEnabled) {
             if (player.mediaItemCount == 0) return
 
-            val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-            val currentIndex = player.currentMediaItemIndex
-            val totalCount = player.mediaItemCount
-
-            applyShuffleOrder(currentIndex, totalCount, shufflePlaylistFirst)
+            applyShuffleOrder(dataStore.get(ShufflePlaylistFirstKey, false))
         }
 
         if (dataStore.get(RememberShuffleAndRepeatKey, true)) {
@@ -2839,47 +2857,24 @@ class MusicService :
     }
 
     /**
-     * Applies a new shuffle order to the player, maintaining the current item's position.
-     * If `shufflePlaylistFirst` is true, it attempts to shuffle original items separately from added items.
+     * Reshuffles the context while keeping the current item first and the user queue right after it.
+     * If `shufflePlaylistFirst` is true, the original playlist items are shuffled ahead of items added later
+     * (load more, radio).
      */
-    private fun applyShuffleOrder(
-        currentIndex: Int,
-        totalCount: Int,
-        shufflePlaylistFirst: Boolean,
-    ) {
-        if (totalCount == 0) return
-
-        if (shufflePlaylistFirst && originalQueueSize > 0 && originalQueueSize < totalCount) {
-            // Shuffle original items and added items separately
-            val originalIndices = (0 until originalQueueSize).filter { it != currentIndex }.toMutableList()
-            val addedIndices = (originalQueueSize until totalCount).filter { it != currentIndex }.toMutableList()
-
-            originalIndices.shuffle()
-            addedIndices.shuffle()
-
-            val shuffledIndices = IntArray(totalCount)
-            var pos = 0
-            shuffledIndices[pos++] = currentIndex
-
-            if (currentIndex < originalQueueSize) {
-                originalIndices.forEach { shuffledIndices[pos++] = it }
-                addedIndices.forEach { shuffledIndices[pos++] = it }
-            } else {
-                (0 until originalQueueSize).shuffled().forEach { shuffledIndices[pos++] = it }
-                addedIndices.forEach { shuffledIndices[pos++] = it }
+    private fun applyShuffleOrder(shufflePlaylistFirst: Boolean) {
+        if (player.mediaItemCount == 0) return
+        player.arrangeUserQueue { context ->
+            if (!shufflePlaylistFirst || originalQueueSize <= 0) return@arrangeUserQueue context.shuffled()
+            // Original items are the first originalQueueSize context items; user queue items don't count.
+            val originalIndices = HashSet<Int>()
+            var rank = 0
+            for (i in 0 until player.mediaItemCount) {
+                if (player.getMediaItemAt(i).queueSection == QueueSection.NONE) {
+                    if (rank++ < originalQueueSize) originalIndices += i
+                }
             }
-            player.setShuffleOrder(DefaultShuffleOrder(shuffledIndices, System.currentTimeMillis()))
-        } else {
-            val shuffledIndices = IntArray(totalCount) { it }
-            shuffledIndices.shuffle()
-            // Ensure current item is first in the shuffle order
-            val currentItemIndexInShuffled = shuffledIndices.indexOf(currentIndex)
-            if (currentItemIndexInShuffled != -1) { // Should always be true if totalCount > 0
-                val temp = shuffledIndices[0]
-                shuffledIndices[0] = shuffledIndices[currentItemIndexInShuffled]
-                shuffledIndices[currentItemIndexInShuffled] = temp
-            }
-            player.setShuffleOrder(DefaultShuffleOrder(shuffledIndices, System.currentTimeMillis()))
+            val (original, added) = context.partition { it in originalIndices }
+            original.shuffled() + added.shuffled()
         }
     }
 
@@ -4084,10 +4079,11 @@ class MusicService :
         }
 
         try {
+            val persistedItems = player.mediaItems.filter { it.metadata != null }
             val persistQueue =
                 currentQueue.toPersistQueue(
                     title = queueTitle,
-                    items = player.mediaItems.mapNotNull { it.metadata },
+                    items = persistedItems.mapNotNull { it.metadata },
                     mediaItemIndex = player.currentMediaItemIndex,
                     position = player.currentPosition,
                 )
@@ -4110,6 +4106,16 @@ class MusicService :
             }.onFailure {
                 Timber.tag(TAG).e(it, "Failed to save queue")
                 reportException(it)
+            }
+
+            runCatching {
+                filesDir.resolve(PERSISTENT_QUEUE_SECTIONS_FILE).outputStream().use { fos ->
+                    ObjectOutputStream(fos).use { oos ->
+                        oos.writeObject(IntArray(persistedItems.size) { persistedItems[it].queueSection })
+                    }
+                }
+            }.onFailure {
+                Timber.tag(TAG).e(it, "Failed to save queue sections")
             }
 
             runCatching {
@@ -4850,6 +4856,9 @@ class MusicService :
         }
 
         secPlayer.setMediaItems(items)
+        if (shuffleModeEnabled) {
+            secPlayer.setShuffleOrder(DefaultShuffleOrder(player.playbackOrder(), System.currentTimeMillis()))
+        }
         secPlayer.seekTo(targetIndex, 0)
         secPlayer.volume = 0f
 
@@ -4871,11 +4880,6 @@ class MusicService :
         }
 
         performCrossfadeSwap()
-
-        if (shuffleModeEnabled) {
-            val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-            applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
-        }
     }
 
     private fun performCrossfadeSwap() {
@@ -5027,6 +5031,7 @@ class MusicService :
         const val CHUNK_LENGTH = 512 * 1024L
         const val PERSISTENT_QUEUE_FILE = "persistent_queue.data"
         const val PERSISTENT_AUTOMIX_FILE = "persistent_automix.data"
+        const val PERSISTENT_QUEUE_SECTIONS_FILE = "persistent_queue_sections.data"
         const val PERSISTENT_PLAYER_STATE_FILE = "persistent_player_state.data"
         const val MAX_CONSECUTIVE_ERR = 5
         const val MAX_RETRY_COUNT = 10

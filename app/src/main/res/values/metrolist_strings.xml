@@ -90,6 +90,9 @@
     <string name="seek_seconds_addup_description">When enabled, adds 5 extra seconds incrementally with each seek</string>
 
     <string name="similar_content">Similar content</string>
+    <string name="next_in_queue">Next in queue</string>
+    <string name="next_from">Next from: %1$s</string>
+    <string name="next_up">Next up</string>
 
     <string name="player_background_style">Player background style</string>
     <string name="player_background_solid">Solid</string>

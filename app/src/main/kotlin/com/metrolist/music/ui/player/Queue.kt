@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -42,6 +43,7 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -98,7 +100,6 @@ import androidx.compose.ui.unit.sp
 import androidx.datastore.preferences.core.edit
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
-import androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder
 import com.metrolist.music.LocalNavController
 import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
@@ -656,8 +657,9 @@ fun Queue(
     ) {
         val queueTitle by playerConnection.queueTitle.collectAsStateWithLifecycle()
         val queueWindows by playerConnection.queueWindows.collectAsStateWithLifecycle()
+        val userQueueSize by playerConnection.userQueueSize.collectAsStateWithLifecycle()
         val automix by playerConnection.service.automixItems.collectAsStateWithLifecycle()
-        val mutableQueueWindows = remember { mutableStateListOf<Timeline.Window>() }
+        val mutableQueueRows = remember { mutableStateListOf<QueueRow>() }
         val queueLength =
             remember(queueWindows) {
                 queueWindows.sumOf { it.mediaItem.metadata!!.duration }
@@ -667,7 +669,7 @@ fun Queue(
 
         val headerItems = 1
         val lazyListState = rememberLazyListState()
-        var dragInfo by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+        var draggedKey by remember { mutableStateOf<Any?>(null) }
 
         val currentPlayingUid =
             remember(currentWindowIndex, queueWindows) {
@@ -690,55 +692,58 @@ fun Queue(
                             ),
                         ).asPaddingValues(),
             ) { from, to ->
-                val currentDragInfo = dragInfo
-                dragInfo =
-                    if (currentDragInfo == null) {
-                        from.index to to.index
-                    } else {
-                        currentDragInfo.first to to.index
-                    }
+                draggedKey = from.key
+                val safeFrom = (from.index - headerItems).coerceIn(0, mutableQueueRows.lastIndex)
+                val safeTo = (to.index - headerItems).coerceIn(0, mutableQueueRows.lastIndex)
 
-                val safeFrom = (from.index - headerItems).coerceIn(0, mutableQueueWindows.lastIndex)
-                val safeTo = (to.index - headerItems).coerceIn(0, mutableQueueWindows.lastIndex)
-
-                mutableQueueWindows.move(safeFrom, safeTo)
+                mutableQueueRows.move(safeFrom, safeTo)
             }
 
         LaunchedEffect(reorderableState.isAnyItemDragging) {
             if (!reorderableState.isAnyItemDragging) {
-                dragInfo?.let { (from, to) ->
-                    val safeFrom = (from - headerItems).coerceIn(0, queueWindows.lastIndex)
-                    val safeTo = (to - headerItems).coerceIn(0, queueWindows.lastIndex)
-
-                    if (!playerConnection.player.shuffleModeEnabled) {
-                        playerConnection.player.moveMediaItem(safeFrom, safeTo)
-                    } else {
-                        playerConnection.player.setShuffleOrder(
-                            DefaultShuffleOrder(
-                                queueWindows
-                                    .map { it.firstPeriodIndex }
-                                    .toMutableList()
-                                    .move(safeFrom, safeTo)
-                                    .toIntArray(),
-                                System.currentTimeMillis(),
+                draggedKey?.let { key ->
+                    val rowIndex = mutableQueueRows.indexOfFirst { it.key == key }
+                    val window = (mutableQueueRows.getOrNull(rowIndex) as? QueueRow.Track)?.window
+                    val from = queueWindows.indexOfFirst { it.uid == window?.uid }
+                    if (from != -1) {
+                        val to = mutableQueueRows.take(rowIndex).count { it is QueueRow.Track }
+                        // Dropping between the playing song and the context header puts a song in the user queue.
+                        val nowPlayingRow =
+                            mutableQueueRows.indexOfFirst { it is QueueRow.Track && it.window.uid == currentPlayingUid }
+                        val contextRow =
+                            mutableQueueRows.indexOf(QueueRow.Header.Context).takeIf { it != -1 } ?: mutableQueueRows.size
+                        playerConnection.moveQueueItem(
+                            from = from,
+                            to = to,
+                            toUserQueue = nowPlayingRow != -1 && rowIndex in (nowPlayingRow + 1) until contextRow,
+                        )
+                    }
+                    mutableQueueRows.apply {
+                        clear()
+                        addAll(
+                            buildQueueRows(
+                                playerConnection.queueWindows.value,
+                                playerConnection.currentWindowIndex.value,
+                                playerConnection.userQueueSize.value,
                             ),
                         )
                     }
-                    dragInfo = null
+                    draggedKey = null
                 }
             }
         }
 
-        LaunchedEffect(queueWindows) {
-            mutableQueueWindows.apply {
+        LaunchedEffect(queueWindows, currentWindowIndex, userQueueSize) {
+            mutableQueueRows.apply {
                 clear()
-                addAll(queueWindows)
+                addAll(buildQueueRows(queueWindows, currentWindowIndex, userQueueSize))
             }
         }
 
-        LaunchedEffect(mutableQueueWindows, currentWindowIndex) {
+        LaunchedEffect(currentWindowIndex) {
             if (currentWindowIndex != -1) {
-                lazyListState.scrollToItem(currentWindowIndex)
+                // History rows come first, so the "Now playing" header sits right after them.
+                lazyListState.scrollToItem(headerItems + currentWindowIndex)
             }
         }
 
@@ -769,10 +774,31 @@ fun Queue(
                     )
                 }
 
-                itemsIndexed(
-                    items = mutableQueueWindows,
-                    key = { _, item -> item.uid.hashCode() },
-                ) { index, window ->
+                items(
+                    items = mutableQueueRows,
+                    key = { it.key },
+                ) { row ->
+                    if (row is QueueRow.Header) {
+                        QueueSectionHeader(
+                            title =
+                                when (row) {
+                                    QueueRow.Header.NowPlaying -> stringResource(R.string.now_playing)
+                                    QueueRow.Header.UserQueue -> stringResource(R.string.next_in_queue)
+                                    QueueRow.Header.Context ->
+                                        queueTitle?.let { stringResource(R.string.next_from, it) }
+                                            ?: stringResource(R.string.next_up)
+                                },
+                            modifier = Modifier.animateItem(),
+                        ) {
+                            if (row == QueueRow.Header.UserQueue && !isListenTogetherGuest) {
+                                TextButton(onClick = playerConnection::clearUserQueue) {
+                                    Text(stringResource(R.string.clear))
+                                }
+                            }
+                        }
+                        return@items
+                    }
+                    val window = (row as QueueRow.Track).window
                     ReorderableItem(
                         state = reorderableState,
                         key = window.uid.hashCode(),
@@ -807,10 +833,9 @@ fun Queue(
                                                 duration = SnackbarDuration.Short,
                                             )
                                         if (snackbarResult == SnackbarResult.ActionPerformed) {
-                                            playerConnection.player.addMediaItem(currentItem.mediaItem)
-                                            playerConnection.player.moveMediaItem(
-                                                mutableQueueWindows.size,
+                                            playerConnection.restoreQueueItem(
                                                 currentItem.firstPeriodIndex,
+                                                currentItem.mediaItem,
                                             )
                                         }
                                     }
@@ -892,7 +917,7 @@ fun Queue(
                                                     if (inSelectMode) {
                                                         onCheckedChange(window.mediaItem.mediaId !in selection)
                                                     } else if (!isListenTogetherGuest) {
-                                                        if (index == currentWindowIndex) {
+                                                        if (isActive) {
                                                             if (isCasting) {
                                                                 if (castIsPlaying) {
                                                                     castHandler?.pause()
@@ -910,10 +935,7 @@ fun Queue(
                                                                     playerConnection.player.seekToDefaultPosition(window.firstPeriodIndex)
                                                                 }
                                                             } else {
-                                                                playerConnection.player.seekToDefaultPosition(
-                                                                    window.firstPeriodIndex,
-                                                                )
-                                                                playerConnection.player.playWhenReady = true
+                                                                playerConnection.skipToQueueItem(window.firstPeriodIndex)
                                                             }
                                                         }
                                                     }
@@ -1107,14 +1129,14 @@ fun Queue(
                 exit = fadeOut() + shrinkVertically(),
             ) {
                 val selectedSongs =
-                    remember(selection.toList(), mutableQueueWindows) {
-                        mutableQueueWindows
+                    remember(selection.toList(), queueWindows) {
+                        queueWindows
                             .filter { it.mediaItem.mediaId in selection }
                             .mapNotNull { it.mediaItem.metadata }
                     }
                 val selectedItems =
-                    remember(selection.toList(), mutableQueueWindows) {
-                        mutableQueueWindows.filter { it.mediaItem.mediaId in selection }
+                    remember(selection.toList(), queueWindows) {
+                        queueWindows.filter { it.mediaItem.mediaId in selection }
                     }
                 val count = selection.size
                 Row(
@@ -1136,13 +1158,13 @@ fun Queue(
                         modifier = Modifier.weight(1f),
                     )
                     Checkbox(
-                        checked = count == mutableQueueWindows.size && count > 0,
+                        checked = count == queueWindows.size && count > 0,
                         onCheckedChange = {
-                            if (count == mutableQueueWindows.size) {
+                            if (count == queueWindows.size) {
                                 selection.clear()
                             } else {
                                 selection.clear()
-                                mutableQueueWindows.forEach {
+                                queueWindows.forEach {
                                     selection.add(it.mediaItem.mediaId)
                                 }
                             }
@@ -1344,5 +1366,69 @@ private fun PlayerQueueButton(
                 tint = finalTint,
             )
         }
+    }
+}
+
+private sealed interface QueueRow {
+    val key: Any
+
+    data class Track(
+        val window: Timeline.Window,
+    ) : QueueRow {
+        override val key: Any get() = window.uid.hashCode()
+    }
+
+    enum class Header : QueueRow {
+        NowPlaying,
+        UserQueue,
+        Context,
+        ;
+
+        override val key: Any get() = "queue_header_$name"
+    }
+}
+
+/** Splits the windows (in playback order) into history, now playing, user queue and context sections. */
+private fun buildQueueRows(
+    windows: List<Timeline.Window>,
+    currentIndex: Int,
+    userQueueSize: Int,
+): List<QueueRow> =
+    buildList {
+        windows.forEachIndexed { index, window ->
+            if (currentIndex >= 0) {
+                when (index) {
+                    currentIndex -> add(QueueRow.Header.NowPlaying)
+                    currentIndex + 1 -> if (userQueueSize > 0) add(QueueRow.Header.UserQueue)
+                }
+                if (index == currentIndex + 1 + userQueueSize) add(QueueRow.Header.Context)
+            }
+            add(QueueRow.Track(window))
+        }
+    }
+
+@Composable
+private fun QueueSectionHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    action: @Composable () -> Unit = {},
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .padding(start = 16.dp, end = 8.dp),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        action()
     }
 }
