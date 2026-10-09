@@ -128,7 +128,7 @@ constructor(
                     val next = if (fannedOut) {
                         landed.receive()
                     } else {
-                        select {
+                        select<Pair<Int, LyricsCandidate?>?> {
                             landed.onReceive { it }
                             onTimeout(LEAD_HOLD_MS) { null }
                         }
