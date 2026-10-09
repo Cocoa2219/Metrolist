@@ -13,12 +13,16 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.datastore.preferences.core.Preferences
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextMotion
@@ -45,7 +49,7 @@ import com.metrolist.music.constants.AccompanistScrollDurationKey
 import com.metrolist.music.constants.AccompanistSungLineOpacityDefault
 import com.metrolist.music.constants.AccompanistSungLineOpacityKey
 import com.metrolist.music.lyrics.LyricsEntry
-import com.metrolist.music.utils.rememberPreference
+import com.metrolist.music.utils.dataStore
 import com.mocharealm.accompanist.lyrics.core.model.ISyncedLine
 import com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment
@@ -60,6 +64,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -92,17 +97,27 @@ fun AccompanistLyricsView(
 ) {
     // Translations and romanizations fill in line by line after parsing. Accompanist re-prepares the
     // whole scene for every new SyncedLyrics, so those bursts are debounced into one rebuild.
-    val syncedLyrics by remember(lines, respectAgentPositioning) {
+    // Cleared translations stay in the scene and are only hidden, so turning them off animates the
+    // rows away like romanization does instead of rebuilding the lyrics.
+    val content by remember(lines, respectAgentPositioning) {
         if (lines.isEmpty()) {
             flowOf(null)
         } else {
+            val keptTranslations = arrayOfNulls<String>(lines.size)
             combine(lines.flatMap { listOf(it.translatedTextFlow, it.romanizedTextFlow) }) { }
                 .debounce(300)
                 .map {
-                    val started = System.nanoTime()
-                    lines.toSyncedLyrics(respectAgentPositioning).also {
-                        Timber.tag(TAG).d("scene rebuild: %d lines mapped in %.1fms", it.lines.size, (System.nanoTime() - started) / 1e6)
+                    var anyTranslation = false
+                    lines.forEachIndexed { i, entry ->
+                        entry.translatedTextFlow.value?.takeIf { it.isNotBlank() }?.let {
+                            keptTranslations[i] = it
+                            anyTranslation = true
+                        }
                     }
+                    val started = System.nanoTime()
+                    val synced = lines.toSyncedLyrics(respectAgentPositioning, keptTranslations)
+                    Timber.tag(TAG).d("scene rebuild: %d lines mapped in %.1fms", synced.lines.size, (System.nanoTime() - started) / 1e6)
+                    synced to anyTranslation
                 }
                 .flowOn(Dispatchers.Default)
         }
@@ -178,30 +193,31 @@ fun AccompanistLyricsView(
     val smoothPositionProvider = remember { { smoothPosition.intValue } }
     SideEffect { recompositions[0]++ }
 
-    val fontSize by rememberPreference(AccompanistFontSizeKey, AccompanistFontSizeDefault)
-    val lineHeight by rememberPreference(AccompanistLineHeightKey, AccompanistLineHeightDefault)
-    val itemSpacing by rememberPreference(AccompanistItemSpacingKey, AccompanistItemSpacingDefault)
-    val blurEnabled by rememberPreference(AccompanistBlurKey, true)
-    val blurStrength by rememberPreference(AccompanistBlurStrengthKey, AccompanistBlurStrengthDefault)
-    val additiveBlendEnabled by rememberPreference(AccompanistAdditiveBlendKey, true)
-    val sungLineOpacity by rememberPreference(AccompanistSungLineOpacityKey, AccompanistSungLineOpacityDefault)
-    val focusPosition by rememberPreference(AccompanistFocusPositionKey, AccompanistFocusPositionDefault)
-    val scrollDuration by rememberPreference(AccompanistScrollDurationKey, AccompanistScrollDurationDefault)
-    val autoResume by rememberPreference(AccompanistAutoResumeKey, AccompanistAutoResumeDefault)
+    // One snapshot of every setting, and nothing drawn until it has loaded: per-key preferences start
+    // at their defaults, which would prepare and rasterize the whole scene twice when the player opens.
+    val context = LocalContext.current
+    val settings by remember {
+        context.dataStore.data.map { AccompanistViewSettings(it) }.distinctUntilChanged()
+    }.collectAsStateWithLifecycle(null)
 
     // Accompanist sizes the tap highlight to the line itself; a taller, centered line height pads it.
     val baseTextStyle = LocalTextStyle.current
-    val normalLineTextStyle = remember(baseTextStyle, fontSize, lineHeight) {
+    val normalLineTextStyle = remember(baseTextStyle, settings?.fontSize, settings?.lineHeight) {
         baseTextStyle.copy(
-            fontSize = fontSize.sp,
-            lineHeight = lineHeight.em,
+            fontSize = (settings?.fontSize ?: AccompanistFontSizeDefault).sp,
+            lineHeight = (settings?.lineHeight ?: AccompanistLineHeightDefault).em,
             lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
             fontWeight = FontWeight.Bold,
             textMotion = TextMotion.Animated,
         )
     }
 
-    val lyrics = syncedLyrics ?: return
+    // Translation rows only animate when they toggle inside a scene that already contains them, so
+    // they are revealed once the scene built with the new translations is on screen.
+    var shownLyrics by remember { mutableStateOf<SyncedLyrics?>(null) }
+    val (lyrics, hasTranslation) = content ?: return
+    val sceneIsCurrent = remember(shownLyrics, lyrics) { shownLyrics == lyrics }
+    val s = settings ?: return
     KaraokeLyricsView(
         listState = listState,
         lyrics = lyrics,
@@ -211,17 +227,45 @@ fun AccompanistLyricsView(
         modifier = modifier,
         textColor = textColor,
         breathingDotsDefaults = remember(textColor) { KaraokeBreathingDotsDefaults(breathingDotsColor = textColor) },
-        blendMode = if (additiveBlend && additiveBlendEnabled) BlendMode.Plus else BlendMode.SrcOver,
+        blendMode = if (additiveBlend && s.additiveBlend) BlendMode.Plus else BlendMode.SrcOver,
         showPhonetic = showPhonetic,
+        showTranslation = hasTranslation && sceneIsCurrent,
         normalLineTextStyle = normalLineTextStyle,
-        useBlurEffect = blurEnabled,
-        blurDelta = blurStrength,
-        sungLineAlpha = sungLineOpacity,
-        itemSpacing = itemSpacing.dp,
-        anchor = LyricsAnchor.Fraction(focusPosition),
-        scrollAnimationSpec = tween(scrollDuration.roundToInt(), easing = FastOutSlowInEasing),
+        useBlurEffect = s.blur,
+        blurDelta = s.blurStrength,
+        sungLineAlpha = s.sungLineOpacity,
+        onSceneShown = { shownLyrics = it },
+        itemSpacing = s.itemSpacing.dp,
+        anchor = LyricsAnchor.Fraction(s.focusPosition),
+        scrollAnimationSpec = tween(s.scrollDuration.roundToInt(), easing = FastOutSlowInEasing),
         // 0 keeps following off after a manual scroll until the user resyncs, like the default renderer.
-        autoScrollResumeDelayMillis = if (autoResume > 0f) (autoResume * 1000).toLong() else Long.MAX_VALUE,
+        autoScrollResumeDelayMillis = if (s.autoResume > 0f) (s.autoResume * 1000).toLong() else Long.MAX_VALUE,
+    )
+}
+
+private data class AccompanistViewSettings(
+    val fontSize: Float,
+    val lineHeight: Float,
+    val itemSpacing: Float,
+    val blur: Boolean,
+    val blurStrength: Float,
+    val additiveBlend: Boolean,
+    val sungLineOpacity: Float,
+    val focusPosition: Float,
+    val scrollDuration: Float,
+    val autoResume: Float,
+) {
+    constructor(prefs: Preferences) : this(
+        fontSize = prefs[AccompanistFontSizeKey] ?: AccompanistFontSizeDefault,
+        lineHeight = prefs[AccompanistLineHeightKey] ?: AccompanistLineHeightDefault,
+        itemSpacing = prefs[AccompanistItemSpacingKey] ?: AccompanistItemSpacingDefault,
+        blur = prefs[AccompanistBlurKey] ?: true,
+        blurStrength = prefs[AccompanistBlurStrengthKey] ?: AccompanistBlurStrengthDefault,
+        additiveBlend = prefs[AccompanistAdditiveBlendKey] ?: true,
+        sungLineOpacity = prefs[AccompanistSungLineOpacityKey] ?: AccompanistSungLineOpacityDefault,
+        focusPosition = prefs[AccompanistFocusPositionKey] ?: AccompanistFocusPositionDefault,
+        scrollDuration = prefs[AccompanistScrollDurationKey] ?: AccompanistScrollDurationDefault,
+        autoResume = prefs[AccompanistAutoResumeKey] ?: AccompanistAutoResumeDefault,
     )
 }
 
@@ -235,7 +279,10 @@ private fun ISyncedLine.text(): String? = when (this) {
  * Background vocals attach to the preceding word-synced main line; when there is none they are
  * shown as ordinary lines, since Accompanist only nests accompaniment under karaoke lines.
  */
-internal fun List<LyricsEntry>.toSyncedLyrics(respectAgentPositioning: Boolean): SyncedLyrics {
+internal fun List<LyricsEntry>.toSyncedLyrics(
+    respectAgentPositioning: Boolean,
+    translations: Array<String?>,
+): SyncedLyrics {
     val result = mutableListOf<ISyncedLine>()
     var lastMainIndex = -1
 
@@ -245,7 +292,7 @@ internal fun List<LyricsEntry>.toSyncedLyrics(respectAgentPositioning: Boolean):
         val end = (entry.words?.lastOrNull()?.let { (it.endTime * 1000).toInt() }
             ?: subList(index + 1, size).firstOrNull { !it.isBackground }?.time?.toInt()
             ?: (start + LAST_LINE_FALLBACK_MS)).coerceAtLeast(start)
-        val translation = entry.translatedTextFlow.value?.takeIf { it.isNotBlank() }
+        val translation = translations[index]
         val phonetic = entry.romanizedTextFlow.value?.takeIf { it.isNotBlank() && it != entry.text }
         val alignment = if (respectAgentPositioning && entry.agent == "v2") KaraokeAlignment.End else KaraokeAlignment.Unspecified
         val syllables = entry.words?.takeIf { it.isNotEmpty() }?.map { word ->

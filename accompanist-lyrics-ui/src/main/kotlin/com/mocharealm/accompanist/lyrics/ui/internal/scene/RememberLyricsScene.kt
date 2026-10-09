@@ -1,3 +1,4 @@
+// Modified by Metrolist: keeps the previous scene on screen while a new one prepares.
 package com.mocharealm.accompanist.lyrics.ui.internal.scene
 
 import androidx.compose.runtime.*
@@ -21,6 +22,8 @@ internal fun rememberLyricsScene(
     preparedLyrics: PreparedLyrics? = null,
 ): LyricsScene? {
     val position by rememberUpdatedState(currentPosition)
+    // The last complete scene stays on screen while its replacement prepares, instead of blanking.
+    val published = remember { arrayOfNulls<LyricsScene>(1) }
     val layoutState = remember(request, preparedLyrics) { mutableStateOf<LyricsSession?>(null) }
     LaunchedEffect(layoutState) {
         while (isActive) {
@@ -33,7 +36,7 @@ internal fun rememberLyricsScene(
             snapshotFlow { session.lyrics.hasStaleFonts() }.first { it }
         }
     }
-    val session = layoutState.value ?: return null
+    val session = layoutState.value ?: return published[0]
     val prepared = session.lyrics
     val timeline = session.timeline
     val items = session.items
@@ -49,7 +52,9 @@ internal fun rememberLyricsScene(
             LyricsRenderResources(prepared, color, request.density, request.direction)
         }
         timeline.update(position())
-        sceneState.value = LyricsScene(prepared, timeline, resources, items)
+        sceneState.value = LyricsScene(session.source, prepared, timeline, resources, items)
     }
-    return sceneState.value
+    val scene = sceneState.value ?: return published[0]
+    published[0] = scene
+    return scene
 }

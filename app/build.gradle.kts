@@ -272,6 +272,7 @@ dependencies {
     implementation(libs.palette)
     implementation(libs.materialKolor)
     implementation(project(":accompanist-lyrics-ui"))
+    implementation(libs.profileinstaller)
     implementation(libs.accompanist.lyrics.core)
 
     implementation(libs.appcompat)

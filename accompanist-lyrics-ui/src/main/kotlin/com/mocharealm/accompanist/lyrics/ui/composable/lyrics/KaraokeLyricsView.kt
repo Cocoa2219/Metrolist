@@ -1,4 +1,4 @@
-// Modified by Metrolist: adds sungLineAlpha so already-sung lines can be styled apart from upcoming ones.
+// Modified by Metrolist: adds sungLineAlpha and onSceneShown, and reads lines from the scene so a retained scene stays consistent.
 package com.mocharealm.accompanist.lyrics.ui.composable.lyrics
 
 import com.mocharealm.accompanist.lyrics.ui.internal.layout.lyricsAutoScroll
@@ -99,6 +99,8 @@ fun KaraokeLyricsView(
     blurDelta: Float = 3f,
     /** Opacity of lines before the focused one; upcoming lines keep [LyricsLineItem]'s inactive alpha. */
     sungLineAlpha: Float = 0.4f,
+    /** Called with the lyrics of each scene once it is on screen (scenes swap after preparation). */
+    onSceneShown: ((SyncedLyrics) -> Unit)? = null,
     showDebugRectangles: Boolean = false,
     renderProfiles: List<LyricsProfile> = DefaultLyricsProfiles,
     itemSpacing: Dp = 16.dp,
@@ -129,6 +131,8 @@ fun KaraokeLyricsView(
             textColor,
             timeProvider,
         ) ?: return@BoxWithConstraints
+        val sceneShownCallback by rememberUpdatedState(onSceneShown)
+        LaunchedEffect(scene.source) { sceneShownCallback?.invoke(scene.source) }
         val timeline = scene.timeline
         // A single main-vocal row, excluding phonetics, translation and nested vocals.
         // Reuse prepared metrics so font size, line height and font scale stay consistent.
@@ -175,7 +179,7 @@ fun KaraokeLyricsView(
                 sourceIndices.map { index ->
                     val line = scene.lyrics.lines[index]
                     LyricsListItem(
-                        key = "${lyrics.lines[index].start}-${lyrics.lines[index].end}-$index",
+                        key = "${scene.source.lines[index].start}-${scene.source.lines[index].end}-$index",
                         preserveAnchorOnHeightChange = false,
                         settledHeightPx =
                             line?.let { prepared ->
@@ -245,7 +249,7 @@ fun KaraokeLyricsView(
                         .lyricsEdgeFade(topFade, bottomFade, anchorOffset),
             ) { itemIndex ->
                 val index = sourceIndices[itemIndex]
-                val line = lyrics.lines[index]
+                val line = scene.source.lines[index]
                 val prepared = scene.lyrics.lines[index]
                 val focused = index in focus.allIndices
                 val sung = index < (focus.allIndices.firstOrNull() ?: focus.firstIndex)
