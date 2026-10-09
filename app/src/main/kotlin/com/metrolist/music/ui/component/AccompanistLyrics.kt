@@ -8,6 +8,7 @@ package com.metrolist.music.ui.component
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -31,6 +32,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 private const val LAST_LINE_FALLBACK_MS = 5000
+private const val SEEK_THRESHOLD_MS = 1000
 
 @OptIn(FlowPreview::class)
 @Composable
@@ -59,11 +61,24 @@ fun AccompanistLyricsView(
         }
     }.collectAsStateWithLifecycle(null)
 
+    // Accompanist treats any backward step over 1 ms as a seek and restarts its follow animation,
+    // so the player's small clock corrections are held until playback catches up again.
+    val latestPosition by rememberUpdatedState(currentPosition)
+    val monotonicPosition: () -> Int = remember(lines) {
+        var previous = Int.MIN_VALUE
+        val position: () -> Int = {
+            val now = latestPosition()
+            if (now < previous && previous - now < SEEK_THRESHOLD_MS) previous
+            else now.also { previous = it }
+        }
+        position
+    }
+
     val lyrics = syncedLyrics ?: return
     KaraokeLyricsView(
         listState = rememberLyricsLazyListState(),
         lyrics = lyrics,
-        currentPosition = currentPosition,
+        currentPosition = monotonicPosition,
         onLineClicked = { onLineClicked(it.start.toLong()) },
         onLinePressed = { line -> line.text()?.let(onLineLongPressed) },
         modifier = modifier,
