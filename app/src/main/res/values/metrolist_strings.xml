@@ -144,6 +144,14 @@
     <string name="enable_paxsenix_desc">High-quality synchronized lyrics from Paxsenix API</string>
     <string name="enable_lyricsplus">Enable LyricsPlus</string>
     <string name="enable_lyricsplus_desc">Synchronized lyrics from multiple sources</string>
+    <string name="enable_amll">Enable AMLL TTML DB</string>
+    <string name="enable_amll_desc">Community word-synced lyrics with duets and background vocals</string>
+    <string name="enable_unison">Enable Unison</string>
+    <string name="enable_unison_desc">Community-synced lyrics matched to the exact YouTube video</string>
+    <string name="enable_lrcmux">Enable LRCMux</string>
+    <string name="enable_lrcmux_desc">Word-synced lyrics gathered from several sources</string>
+    <string name="enable_lrcred">Enable lrc.red</string>
+    <string name="enable_lrcred_desc">Apple Music lyrics looked up by ISRC</string>
     <string name="lyrics_provider_selection">Provider selection</string>
     <string name="lyrics_provider_selection_desc">Choose which lyrics providers are enabled</string>
     <string name="auto_scroll">Re-sync</string>

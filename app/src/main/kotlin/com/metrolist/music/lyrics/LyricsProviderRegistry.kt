@@ -15,6 +15,10 @@ object LyricsProviderRegistry {
         "Zemer" to ZemerLyricsProvider,
         "YouTubeSubtitle" to YouTubeSubtitleLyricsProvider,
         "YouTube" to YouTubeLyricsProvider,
+        "AMLL" to AmllLyricsProvider,
+        "Unison" to UnisonLyricsProvider,
+        "LRCMux" to LrcMuxLyricsProvider,
+        "LrcRed" to LrcRedLyricsProvider,
     )
 
     val providerNames = providerMap.keys.toList()
@@ -38,6 +42,8 @@ object LyricsProviderRegistry {
 
     fun getDefaultProviderOrder(): List<String> = listOf(
         "BetterLyrics",
+        "AMLL",
+        "Unison",
         "LrcLib",
         "KuGou",
         "Paxsenix",
@@ -45,6 +51,8 @@ object LyricsProviderRegistry {
         "Zemer",
         "YouTubeSubtitle",
         "YouTube",
+        "LRCMux",
+        "LrcRed",
     )
 
     fun getOrderedProviders(orderString: String): List<LyricsProvider> {
