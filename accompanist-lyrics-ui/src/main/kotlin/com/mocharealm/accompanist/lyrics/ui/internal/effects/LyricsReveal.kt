@@ -1,3 +1,4 @@
+// Modified by Metrolist: fully hidden reveals drop their blur so they are not rendered offscreen.
 package com.mocharealm.accompanist.lyrics.ui.internal.effects
 
 import androidx.compose.animation.*
@@ -97,7 +98,9 @@ internal fun LyricsReveal(
                     scaleX = revealScale(value)
                     scaleY = scaleX
                     alpha = revealAlpha(value)
-                    renderEffect = blur[revealBlurIndex(value)]
+                    // A RenderEffect forces an offscreen pass even at alpha 0; hidden captions kept for
+                    // measurement would otherwise each cost a blurred layer every frame.
+                    renderEffect = if (value <= 0f) null else blur[revealBlurIndex(value)]
                 }
         ) {
             content()
