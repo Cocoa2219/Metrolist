@@ -62,7 +62,6 @@ import com.metrolist.music.constants.DynamicThemeKey
 import com.metrolist.music.constants.EnableDynamicIconKey
 import com.metrolist.music.constants.EnableHighRefreshRateKey
 import com.metrolist.music.constants.EnableLandscapeScalingKey
-import com.metrolist.music.constants.AccompanistLyricsKey
 import com.metrolist.music.constants.ExperimentalLyricsKey
 import com.metrolist.music.constants.ForceBottomNavBarKey
 import com.metrolist.music.constants.GridItemSize
@@ -227,7 +226,6 @@ fun AppearanceSettings(
         )
     val (respectAgentPositioning, onRespectAgentPositioningChange) = rememberPreference(RespectAgentPositioningKey, defaultValue = true)
     val (experimentalLyrics, onExperimentalLyricsChange) = rememberPreference(ExperimentalLyricsKey, defaultValue = true)
-    val (accompanistLyrics, onAccompanistLyricsChange) = rememberPreference(AccompanistLyricsKey, defaultValue = false)
 
     val (lyricsGlowEffect, onLyricsGlowEffectChange) = rememberPreference(LyricsGlowEffectKey, defaultValue = false)
     val (lyricsAnimationStyle, onLyricsAnimationStyleChange) =
@@ -1380,42 +1378,6 @@ fun AppearanceSettings(
                             },
                         ),
                     )
-
-                    if (experimentalLyrics) {
-                        add(
-                            Material3SettingsItem(
-                                icon = painterResource(R.drawable.lyrics),
-                                title = { Text(stringResource(R.string.accompanist_lyrics)) },
-                                description = { Text(stringResource(R.string.accompanist_lyrics_desc)) },
-                                trailingContent = {
-                                    Switch(
-                                        checked = accompanistLyrics,
-                                        onCheckedChange = onAccompanistLyricsChange,
-                                        thumbContent = {
-                                            Icon(
-                                                painter =
-                                                    painterResource(
-                                                        id = if (accompanistLyrics) R.drawable.check else R.drawable.close,
-                                                    ),
-                                                contentDescription = null,
-                                                modifier = Modifier.size(SwitchDefaults.IconSize),
-                                            )
-                                        },
-                                    )
-                                },
-                                onClick = { onAccompanistLyricsChange(!accompanistLyrics) },
-                            ),
-                        )
-                        if (accompanistLyrics) {
-                            add(
-                                Material3SettingsItem(
-                                    icon = painterResource(R.drawable.tune),
-                                    title = { Text(stringResource(R.string.accompanist_settings)) },
-                                    onClick = { navController.navigate("settings/appearance/accompanist") },
-                                ),
-                            )
-                        }
-                    }
 
                     if (!experimentalLyrics) {
                         add(

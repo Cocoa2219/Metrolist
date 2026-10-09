@@ -116,7 +116,6 @@ import com.metrolist.music.utils.ComposeToImage
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.LyricsViewModel
-import com.mocharealm.accompanist.lyrics.ui.composable.list.LyricsLazyListState
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collect
@@ -145,7 +144,6 @@ fun ExperimentalLyrics(
     sliderPositionProvider: () -> Long?,
     modifier: Modifier = Modifier,
     showLyrics: Boolean,
-    useAccompanist: Boolean = false,
     lyricsViewModel: LyricsViewModel = hiltViewModel()
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
@@ -315,7 +313,6 @@ fun ExperimentalLyrics(
     val selectedIndices = remember { mutableStateListOf<Int>() }
     var showMaxSelectionToast by remember { mutableStateOf(false) }
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(true) }
-    val accompanistListState = remember(lyrics) { LyricsLazyListState() }
     val isLyricsProviderShown = lyricsEntity != null &&
         lyricsEntity.provider != "Unknown" &&
         lyricsEntity.provider != "Manual" &&
@@ -517,28 +514,6 @@ fun ExperimentalLyrics(
                      LyricsPosition.LEFT -> Alignment.CenterStart; LyricsPosition.CENTER -> Alignment.Center; else -> Alignment.CenterEnd
                  }, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) { TextPlaceholder() } } }
              }
-        } else if (useAccompanist && isSynced) {
-            AccompanistLyricsView(
-                lines = lines,
-                listState = accompanistListState,
-                currentPosition = { (currentPositionState + (currentSong?.song?.lyricsOffset ?: 0)).toInt() },
-                isPlaying = { playerConnection.player.isPlaying && !isSeeking },
-                playbackSpeed = { playerConnection.player.playbackParameters.speed },
-                textColor = expressiveAccent,
-                additiveBlend = playerBackground != PlayerBackgroundStyle.DEFAULT,
-                respectAgentPositioning = respectAgentPositioning,
-                showPhonetic = currentSong?.romanizeLyrics == true,
-                onLineClicked = { startMs ->
-                    if (changeLyrics && !isGuest && startMs < playerConnection.player.duration + 30000L) {
-                        playerConnection.seekTo((startMs - (currentSong?.song?.lyricsOffset ?: 0)).coerceAtLeast(0))
-                    }
-                },
-                onLineLongPressed = { text ->
-                    shareDialogData = Triple(text, mediaMetadata?.title ?: "", mediaMetadata?.artists?.joinToString { it.name } ?: "")
-                    showShareDialog = true
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
         } else {
             Box(
                 modifier = Modifier
@@ -684,10 +659,9 @@ fun ExperimentalLyrics(
 
         LyricsActionOverlay(
             modifier = Modifier.align(Alignment.BottomCenter),
-            isAutoScrollEnabled = if (useAccompanist) !accompanistListState.isManualScrolling else isAutoScrollEnabled,
-            isSynced = isSynced,
+            isAutoScrollEnabled = isAutoScrollEnabled, isSynced = isSynced,
             isSelectionModeActive = isSelectionModeActive, anySelected = selectedIndices.isNotEmpty(),
-            onSyncClick = if (useAccompanist) ({ accompanistListState.resumeAutoScroll() }) else latestResyncLyrics,
+            onSyncClick = latestResyncLyrics,
             onCancelSelection = { isSelectionModeActive = false; selectedIndices.clear() },
             onShareSelection = {
                 val text = selectedIndices.sorted().mapNotNull { lines.getOrNull(it)?.text }.joinToString("\n")

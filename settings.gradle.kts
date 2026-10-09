@@ -40,4 +40,3 @@ dependencyResolutionManagement {
 rootProject.name = "Metrolist"
 include(":app")
 include(":innertube")
-include(":accompanist-lyrics-ui")
