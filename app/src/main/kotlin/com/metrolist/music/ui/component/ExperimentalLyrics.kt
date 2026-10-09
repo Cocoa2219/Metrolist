@@ -518,6 +518,8 @@ fun ExperimentalLyrics(
             AccompanistLyricsView(
                 lines = lines,
                 currentPosition = { (currentPositionState + (currentSong?.song?.lyricsOffset ?: 0)).toInt() },
+                isPlaying = { playerConnection.player.isPlaying && !isSeeking },
+                playbackSpeed = { playerConnection.player.playbackParameters.speed },
                 textColor = expressiveAccent,
                 additiveBlend = playerBackground != PlayerBackgroundStyle.DEFAULT,
                 respectAgentPositioning = respectAgentPositioning,

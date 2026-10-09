@@ -6,8 +6,13 @@
 package com.metrolist.music.ui.component
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
@@ -29,14 +34,23 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.isActive
+import kotlin.math.abs
+import kotlin.math.exp
+import timber.log.Timber
 
+private const val TAG = "AccompanistLyrics"
 private const val LAST_LINE_FALLBACK_MS = 5000
+private const val CLOCK_SNAP_MS = 500
+private const val CLOCK_SMOOTHING_MS = 300.0
 
 @OptIn(FlowPreview::class)
 @Composable
 fun AccompanistLyricsView(
     lines: List<LyricsEntry>,
     currentPosition: () -> Int,
+    isPlaying: () -> Boolean,
+    playbackSpeed: () -> Float,
     textColor: Color,
     additiveBlend: Boolean,
     respectAgentPositioning: Boolean,
@@ -54,16 +68,91 @@ fun AccompanistLyricsView(
         } else {
             combine(lines.flatMap { listOf(it.translatedTextFlow, it.romanizedTextFlow) }) { }
                 .debounce(300)
-                .map { lines.toSyncedLyrics(respectAgentPositioning) }
+                .map {
+                    val started = System.nanoTime()
+                    lines.toSyncedLyrics(respectAgentPositioning).also {
+                        Timber.tag(TAG).d("scene rebuild: %d lines mapped in %.1fms", it.lines.size, (System.nanoTime() - started) / 1e6)
+                    }
+                }
                 .flowOn(Dispatchers.Default)
         }
     }.collectAsStateWithLifecycle(null)
+
+    // The player position advances in coarse steps, which makes syllable fills stutter. Advance on
+    // frame time instead and ease toward the player; large differences (seeks) snap.
+    val latestPosition by rememberUpdatedState(currentPosition)
+    val latestIsPlaying by rememberUpdatedState(isPlaying)
+    val latestSpeed by rememberUpdatedState(playbackSpeed)
+    val smoothPosition = remember { mutableIntStateOf(currentPosition()) }
+    val recompositions = remember { intArrayOf(0) }
+    LaunchedEffect(Unit) {
+        var predicted = latestPosition().toDouble()
+        var lastFrame = withFrameMillis { it }
+        // ponytail: diagnostics for the choppy-text report, summarized once a second; remove once resolved
+        var windowStart = lastFrame
+        var frames = 0
+        var maxGap = 0L
+        var rawStalls = 0
+        var rawBackSteps = 0
+        var maxRawStep = 0
+        var snaps = 0
+        var maxError = 0.0
+        var smoothBackSteps = 0
+        var lastRaw = latestPosition()
+        var lastSmooth = predicted.toInt()
+        while (isActive) {
+            withFrameMillis { frame ->
+                val raw = latestPosition()
+                val elapsed = (frame - lastFrame).coerceAtLeast(0L)
+                lastFrame = frame
+                val playing = latestIsPlaying()
+                val rawStep = raw - lastRaw
+                lastRaw = raw
+                predicted = if (!playing) {
+                    raw.toDouble()
+                } else {
+                    if (rawStep == 0) rawStalls++
+                    if (rawStep < 0) rawBackSteps++
+                    maxRawStep = maxOf(maxRawStep, abs(rawStep))
+                    val advanced = predicted + elapsed * latestSpeed()
+                    val error = raw - advanced
+                    maxError = maxOf(maxError, abs(error))
+                    if (abs(error) > CLOCK_SNAP_MS) {
+                        snaps++
+                        raw.toDouble()
+                    } else {
+                        advanced + error * (1 - exp(-elapsed / CLOCK_SMOOTHING_MS))
+                    }
+                }
+                val smooth = predicted.toInt()
+                if (smooth < lastSmooth) smoothBackSteps++
+                lastSmooth = smooth
+                smoothPosition.intValue = smooth
+
+                frames++
+                maxGap = maxOf(maxGap, elapsed)
+                if (frame - windowStart >= 1000) {
+                    if (playing) {
+                        Timber.tag(TAG).d(
+                            "clock: frames=%d maxFrameGap=%dms rawStalls=%d rawBack=%d maxRawStep=%dms snaps=%d maxError=%.1fms smoothBack=%d speed=%.2f recompositions=%d",
+                            frames, maxGap, rawStalls, rawBackSteps, maxRawStep, snaps, maxError, smoothBackSteps, latestSpeed(), recompositions[0],
+                        )
+                    }
+                    windowStart = frame
+                    frames = 0; maxGap = 0; rawStalls = 0; rawBackSteps = 0; maxRawStep = 0
+                    snaps = 0; maxError = 0.0; smoothBackSteps = 0; recompositions[0] = 0
+                }
+            }
+        }
+    }
+    val smoothPositionProvider = remember { { smoothPosition.intValue } }
+    SideEffect { recompositions[0]++ }
 
     val lyrics = syncedLyrics ?: return
     KaraokeLyricsView(
         listState = rememberLyricsLazyListState(),
         lyrics = lyrics,
-        currentPosition = currentPosition,
+        currentPosition = smoothPositionProvider,
         onLineClicked = { onLineClicked(it.start.toLong()) },
         onLinePressed = { line -> line.text()?.let(onLineLongPressed) },
         modifier = modifier,
