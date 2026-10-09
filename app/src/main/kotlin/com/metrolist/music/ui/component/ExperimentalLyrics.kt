@@ -144,6 +144,7 @@ fun ExperimentalLyrics(
     sliderPositionProvider: () -> Long?,
     modifier: Modifier = Modifier,
     showLyrics: Boolean,
+    useAccompanist: Boolean = false,
     lyricsViewModel: LyricsViewModel = hiltViewModel()
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
@@ -513,6 +514,26 @@ fun ExperimentalLyrics(
                      LyricsPosition.LEFT -> Alignment.CenterStart; LyricsPosition.CENTER -> Alignment.Center; else -> Alignment.CenterEnd
                  }, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) { TextPlaceholder() } } }
              }
+        } else if (useAccompanist && isSynced) {
+            AccompanistLyricsView(
+                lines = lines,
+                currentPosition = { (currentPositionState + (currentSong?.song?.lyricsOffset ?: 0)).toInt() },
+                textColor = expressiveAccent,
+                additiveBlend = playerBackground != PlayerBackgroundStyle.DEFAULT,
+                respectAgentPositioning = respectAgentPositioning,
+                showPhonetic = currentSong?.romanizeLyrics == true,
+                anchorFraction = LYRICS_ANCHOR_RATIO,
+                onLineClicked = { startMs ->
+                    if (changeLyrics && !isGuest && startMs < playerConnection.player.duration + 30000L) {
+                        playerConnection.seekTo((startMs - (currentSong?.song?.lyricsOffset ?: 0)).coerceAtLeast(0))
+                    }
+                },
+                onLineLongPressed = { text ->
+                    shareDialogData = Triple(text, mediaMetadata?.title ?: "", mediaMetadata?.artists?.joinToString { it.name } ?: "")
+                    showShareDialog = true
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         } else {
             Box(
                 modifier = Modifier
