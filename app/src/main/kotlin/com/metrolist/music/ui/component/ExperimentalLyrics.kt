@@ -400,11 +400,12 @@ fun ExperimentalLyrics(
         }
     }
 
+    // currentPositionState changes every frame; derivedStateOf already tracks it, and keying the
+    // remember on it would recompose this whole screen every frame.
     val scrollTargetListIndex by remember(
         mergedLyricsList,
         activeLineIndices,
         anchoredLineIndex,
-        currentPositionState,
     ) {
         derivedStateOf {
             val activeLineListIndex = if (activeLineIndices.isEmpty()) {
