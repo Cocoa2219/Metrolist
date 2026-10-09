@@ -1881,7 +1881,8 @@ fun BottomSheetPlayer(
                                 InlineLyricsView(
                                     mediaMetadata = mediaMetadata,
                                     showLyrics = showLyrics,
-                                    positionProvider = { effectivePosition },
+                                    // Null lets the lyrics read the player every frame; only drags and Cast override it.
+                                    positionProvider = { sliderPosition ?: effectivePosition.takeIf { isCasting } },
                                 )
                             } else {
                                 Thumbnail(
@@ -1944,7 +1945,8 @@ fun BottomSheetPlayer(
                                 InlineLyricsView(
                                     mediaMetadata = mediaMetadata,
                                     showLyrics = showLyrics,
-                                    positionProvider = { effectivePosition },
+                                    // Null lets the lyrics read the player every frame; only drags and Cast override it.
+                                    positionProvider = { sliderPosition ?: effectivePosition.takeIf { isCasting } },
                                 )
                             } else {
                                 Thumbnail(
@@ -2000,7 +2002,7 @@ fun BottomSheetPlayer(
 fun InlineLyricsView(
     mediaMetadata: MediaMetadata?,
     showLyrics: Boolean,
-    positionProvider: () -> Long,
+    positionProvider: () -> Long?,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val currentLyrics by playerConnection.currentLyrics.collectAsStateWithLifecycle(initialValue = null)
