@@ -64,6 +64,8 @@ import com.metrolist.music.constants.AccompanistLineHeightDefault
 import com.metrolist.music.constants.AccompanistLineHeightKey
 import com.metrolist.music.constants.AccompanistScrollDurationDefault
 import com.metrolist.music.constants.AccompanistScrollDurationKey
+import com.metrolist.music.constants.AccompanistSungLineOpacityDefault
+import com.metrolist.music.constants.AccompanistSungLineOpacityKey
 import com.metrolist.music.constants.PlayerBackgroundStyle
 import com.metrolist.music.constants.PlayerBackgroundStyleKey
 import com.metrolist.music.lyrics.LyricsEntry
@@ -88,6 +90,7 @@ fun AccompanistSettings(navController: NavController) {
     val blur = rememberPreference(AccompanistBlurKey, true)
     val blurStrength = rememberPreference(AccompanistBlurStrengthKey, AccompanistBlurStrengthDefault)
     val additiveBlend = rememberPreference(AccompanistAdditiveBlendKey, true)
+    val sungLineOpacity = rememberPreference(AccompanistSungLineOpacityKey, AccompanistSungLineOpacityDefault)
     val focusPosition = rememberPreference(AccompanistFocusPositionKey, AccompanistFocusPositionDefault)
     val scrollDuration = rememberPreference(AccompanistScrollDurationKey, AccompanistScrollDurationDefault)
     val autoResume = rememberPreference(AccompanistAutoResumeKey, AccompanistAutoResumeDefault)
@@ -127,6 +130,9 @@ fun AccompanistSettings(navController: NavController) {
                         String.format(Locale.US, "%.1f", it)
                     },
                     switchItem(R.drawable.gradient, R.string.accompanist_additive_blend, R.string.accompanist_additive_blend_desc, additiveBlend),
+                    sliderItem(R.drawable.tune, R.string.accompanist_sung_line_opacity, sungLineOpacity, 0f..1f, 19) {
+                        "${(it * 100).roundToInt()}%"
+                    },
                 ),
             )
 

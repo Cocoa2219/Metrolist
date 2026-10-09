@@ -42,6 +42,8 @@ import com.metrolist.music.constants.AccompanistLineHeightDefault
 import com.metrolist.music.constants.AccompanistLineHeightKey
 import com.metrolist.music.constants.AccompanistScrollDurationDefault
 import com.metrolist.music.constants.AccompanistScrollDurationKey
+import com.metrolist.music.constants.AccompanistSungLineOpacityDefault
+import com.metrolist.music.constants.AccompanistSungLineOpacityKey
 import com.metrolist.music.lyrics.LyricsEntry
 import com.metrolist.music.utils.rememberPreference
 import com.mocharealm.accompanist.lyrics.core.model.ISyncedLine
@@ -51,6 +53,7 @@ import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable
 import com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine
 import com.mocharealm.accompanist.lyrics.ui.composable.list.LyricsLazyListState
+import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeBreathingDotsDefaults
 import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeLyricsView
 import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.LyricsAnchor
 import kotlinx.coroutines.Dispatchers
@@ -181,6 +184,7 @@ fun AccompanistLyricsView(
     val blurEnabled by rememberPreference(AccompanistBlurKey, true)
     val blurStrength by rememberPreference(AccompanistBlurStrengthKey, AccompanistBlurStrengthDefault)
     val additiveBlendEnabled by rememberPreference(AccompanistAdditiveBlendKey, true)
+    val sungLineOpacity by rememberPreference(AccompanistSungLineOpacityKey, AccompanistSungLineOpacityDefault)
     val focusPosition by rememberPreference(AccompanistFocusPositionKey, AccompanistFocusPositionDefault)
     val scrollDuration by rememberPreference(AccompanistScrollDurationKey, AccompanistScrollDurationDefault)
     val autoResume by rememberPreference(AccompanistAutoResumeKey, AccompanistAutoResumeDefault)
@@ -206,11 +210,13 @@ fun AccompanistLyricsView(
         onLinePressed = { line -> line.text()?.let(onLineLongPressed) },
         modifier = modifier,
         textColor = textColor,
+        breathingDotsDefaults = remember(textColor) { KaraokeBreathingDotsDefaults(breathingDotsColor = textColor) },
         blendMode = if (additiveBlend && additiveBlendEnabled) BlendMode.Plus else BlendMode.SrcOver,
         showPhonetic = showPhonetic,
         normalLineTextStyle = normalLineTextStyle,
         useBlurEffect = blurEnabled,
         blurDelta = blurStrength,
+        sungLineAlpha = sungLineOpacity,
         itemSpacing = itemSpacing.dp,
         anchor = LyricsAnchor.Fraction(focusPosition),
         scrollAnimationSpec = tween(scrollDuration.roundToInt(), easing = FastOutSlowInEasing),

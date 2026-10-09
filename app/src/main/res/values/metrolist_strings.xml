@@ -215,6 +215,7 @@
     <string name="accompanist_blur">Blur unfocused lines</string>
     <string name="accompanist_blur_strength">Blur strength</string>
     <string name="accompanist_additive_blend">Glow blend</string>
+    <string name="accompanist_sung_line_opacity">Sung lines opacity</string>
     <string name="accompanist_additive_blend_desc">Blend lyrics additively over blurred and gradient player backgrounds</string>
     <string name="accompanist_scrolling">Scrolling</string>
     <string name="accompanist_focus_position">Focus position</string>
