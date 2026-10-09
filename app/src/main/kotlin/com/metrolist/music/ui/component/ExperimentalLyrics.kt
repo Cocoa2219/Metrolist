@@ -116,6 +116,7 @@ import com.metrolist.music.utils.ComposeToImage
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.LyricsViewModel
+import com.mocharealm.accompanist.lyrics.ui.composable.list.LyricsLazyListState
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collect
@@ -314,6 +315,7 @@ fun ExperimentalLyrics(
     val selectedIndices = remember { mutableStateListOf<Int>() }
     var showMaxSelectionToast by remember { mutableStateOf(false) }
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(true) }
+    val accompanistListState = remember(lyrics) { LyricsLazyListState() }
     val isLyricsProviderShown = lyricsEntity != null &&
         lyricsEntity.provider != "Unknown" &&
         lyricsEntity.provider != "Manual" &&
@@ -517,6 +519,7 @@ fun ExperimentalLyrics(
         } else if (useAccompanist && isSynced) {
             AccompanistLyricsView(
                 lines = lines,
+                listState = accompanistListState,
                 currentPosition = { (currentPositionState + (currentSong?.song?.lyricsOffset ?: 0)).toInt() },
                 isPlaying = { playerConnection.player.isPlaying && !isSeeking },
                 playbackSpeed = { playerConnection.player.playbackParameters.speed },
@@ -524,7 +527,6 @@ fun ExperimentalLyrics(
                 additiveBlend = playerBackground != PlayerBackgroundStyle.DEFAULT,
                 respectAgentPositioning = respectAgentPositioning,
                 showPhonetic = currentSong?.romanizeLyrics == true,
-                anchorFraction = LYRICS_ANCHOR_RATIO,
                 onLineClicked = { startMs ->
                     if (changeLyrics && !isGuest && startMs < playerConnection.player.duration + 30000L) {
                         playerConnection.seekTo((startMs - (currentSong?.song?.lyricsOffset ?: 0)).coerceAtLeast(0))
@@ -681,9 +683,10 @@ fun ExperimentalLyrics(
 
         LyricsActionOverlay(
             modifier = Modifier.align(Alignment.BottomCenter),
-            isAutoScrollEnabled = isAutoScrollEnabled, isSynced = isSynced,
+            isAutoScrollEnabled = if (useAccompanist) !accompanistListState.isManualScrolling else isAutoScrollEnabled,
+            isSynced = isSynced,
             isSelectionModeActive = isSelectionModeActive, anySelected = selectedIndices.isNotEmpty(),
-            onSyncClick = latestResyncLyrics,
+            onSyncClick = if (useAccompanist) ({ accompanistListState.resumeAutoScroll() }) else latestResyncLyrics,
             onCancelSelection = { isSelectionModeActive = false; selectedIndices.clear() },
             onShareSelection = {
                 val text = selectedIndices.sorted().mapNotNull { lines.getOrNull(it)?.text }.joinToString("\n")

@@ -485,6 +485,24 @@ val RespectAgentPositioningKey = booleanPreferencesKey("respectAgentPositioning"
 val ShowIntervalIndicatorKey = booleanPreferencesKey("showIntervalIndicator")
 val ExperimentalLyricsKey = booleanPreferencesKey("experimentalLyrics")
 val AccompanistLyricsKey = booleanPreferencesKey("accompanistLyrics")
+val AccompanistFontSizeKey = floatPreferencesKey("accompanistFontSize")
+val AccompanistLineHeightKey = floatPreferencesKey("accompanistLineHeight")
+val AccompanistItemSpacingKey = floatPreferencesKey("accompanistItemSpacing")
+val AccompanistBlurKey = booleanPreferencesKey("accompanistBlur")
+val AccompanistBlurStrengthKey = floatPreferencesKey("accompanistBlurStrength")
+val AccompanistAdditiveBlendKey = booleanPreferencesKey("accompanistAdditiveBlend")
+val AccompanistFocusPositionKey = floatPreferencesKey("accompanistFocusPosition")
+val AccompanistScrollDurationKey = floatPreferencesKey("accompanistScrollDuration")
+/** Seconds before following resumes after a manual scroll; 0 waits for the resync button. */
+val AccompanistAutoResumeKey = floatPreferencesKey("accompanistAutoResume")
+
+const val AccompanistFontSizeDefault = 34f
+const val AccompanistLineHeightDefault = 1.5f
+const val AccompanistItemSpacingDefault = 8f
+const val AccompanistBlurStrengthDefault = 3f
+const val AccompanistFocusPositionDefault = 0.35f
+const val AccompanistScrollDurationDefault = 650f
+const val AccompanistAutoResumeDefault = 0f
 
 val PlayerVolumeKey = floatPreferencesKey("playerVolume")
 val SleepTimerDefaultKey = floatPreferencesKey("sleepTimerDefault")

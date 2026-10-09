@@ -1406,6 +1406,15 @@ fun AppearanceSettings(
                                 onClick = { onAccompanistLyricsChange(!accompanistLyrics) },
                             ),
                         )
+                        if (accompanistLyrics) {
+                            add(
+                                Material3SettingsItem(
+                                    icon = painterResource(R.drawable.tune),
+                                    title = { Text(stringResource(R.string.accompanist_settings)) },
+                                    onClick = { navController.navigate("settings/appearance/accompanist") },
+                                ),
+                            )
+                        }
                     }
 
                     if (!experimentalLyrics) {

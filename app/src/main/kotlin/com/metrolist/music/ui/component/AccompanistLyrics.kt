@@ -5,6 +5,9 @@
 
 package com.metrolist.music.ui.component
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -16,15 +19,38 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextMotion
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.metrolist.music.constants.AccompanistAdditiveBlendKey
+import com.metrolist.music.constants.AccompanistAutoResumeDefault
+import com.metrolist.music.constants.AccompanistAutoResumeKey
+import com.metrolist.music.constants.AccompanistBlurKey
+import com.metrolist.music.constants.AccompanistBlurStrengthDefault
+import com.metrolist.music.constants.AccompanistBlurStrengthKey
+import com.metrolist.music.constants.AccompanistFocusPositionDefault
+import com.metrolist.music.constants.AccompanistFocusPositionKey
+import com.metrolist.music.constants.AccompanistFontSizeDefault
+import com.metrolist.music.constants.AccompanistFontSizeKey
+import com.metrolist.music.constants.AccompanistItemSpacingDefault
+import com.metrolist.music.constants.AccompanistItemSpacingKey
+import com.metrolist.music.constants.AccompanistLineHeightDefault
+import com.metrolist.music.constants.AccompanistLineHeightKey
+import com.metrolist.music.constants.AccompanistScrollDurationDefault
+import com.metrolist.music.constants.AccompanistScrollDurationKey
 import com.metrolist.music.lyrics.LyricsEntry
+import com.metrolist.music.utils.rememberPreference
 import com.mocharealm.accompanist.lyrics.core.model.ISyncedLine
 import com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable
 import com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine
-import com.mocharealm.accompanist.lyrics.ui.composable.list.rememberLyricsLazyListState
+import com.mocharealm.accompanist.lyrics.ui.composable.list.LyricsLazyListState
 import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeLyricsView
 import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.LyricsAnchor
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +63,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlin.math.abs
 import kotlin.math.exp
+import kotlin.math.roundToInt
 import timber.log.Timber
 
 private const val TAG = "AccompanistLyrics"
@@ -48,6 +75,7 @@ private const val CLOCK_SMOOTHING_MS = 300.0
 @Composable
 fun AccompanistLyricsView(
     lines: List<LyricsEntry>,
+    listState: LyricsLazyListState,
     currentPosition: () -> Int,
     isPlaying: () -> Boolean,
     playbackSpeed: () -> Float,
@@ -55,7 +83,6 @@ fun AccompanistLyricsView(
     additiveBlend: Boolean,
     respectAgentPositioning: Boolean,
     showPhonetic: Boolean,
-    anchorFraction: Float,
     onLineClicked: (startMs: Long) -> Unit,
     onLineLongPressed: (text: String) -> Unit,
     modifier: Modifier = Modifier,
@@ -148,18 +175,47 @@ fun AccompanistLyricsView(
     val smoothPositionProvider = remember { { smoothPosition.intValue } }
     SideEffect { recompositions[0]++ }
 
+    val fontSize by rememberPreference(AccompanistFontSizeKey, AccompanistFontSizeDefault)
+    val lineHeight by rememberPreference(AccompanistLineHeightKey, AccompanistLineHeightDefault)
+    val itemSpacing by rememberPreference(AccompanistItemSpacingKey, AccompanistItemSpacingDefault)
+    val blurEnabled by rememberPreference(AccompanistBlurKey, true)
+    val blurStrength by rememberPreference(AccompanistBlurStrengthKey, AccompanistBlurStrengthDefault)
+    val additiveBlendEnabled by rememberPreference(AccompanistAdditiveBlendKey, true)
+    val focusPosition by rememberPreference(AccompanistFocusPositionKey, AccompanistFocusPositionDefault)
+    val scrollDuration by rememberPreference(AccompanistScrollDurationKey, AccompanistScrollDurationDefault)
+    val autoResume by rememberPreference(AccompanistAutoResumeKey, AccompanistAutoResumeDefault)
+
+    // Accompanist sizes the tap highlight to the line itself; a taller, centered line height pads it.
+    val baseTextStyle = LocalTextStyle.current
+    val normalLineTextStyle = remember(baseTextStyle, fontSize, lineHeight) {
+        baseTextStyle.copy(
+            fontSize = fontSize.sp,
+            lineHeight = lineHeight.em,
+            lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
+            fontWeight = FontWeight.Bold,
+            textMotion = TextMotion.Animated,
+        )
+    }
+
     val lyrics = syncedLyrics ?: return
     KaraokeLyricsView(
-        listState = rememberLyricsLazyListState(),
+        listState = listState,
         lyrics = lyrics,
         currentPosition = smoothPositionProvider,
         onLineClicked = { onLineClicked(it.start.toLong()) },
         onLinePressed = { line -> line.text()?.let(onLineLongPressed) },
         modifier = modifier,
         textColor = textColor,
-        blendMode = if (additiveBlend) BlendMode.Plus else BlendMode.SrcOver,
+        blendMode = if (additiveBlend && additiveBlendEnabled) BlendMode.Plus else BlendMode.SrcOver,
         showPhonetic = showPhonetic,
-        anchor = LyricsAnchor.Fraction(anchorFraction),
+        normalLineTextStyle = normalLineTextStyle,
+        useBlurEffect = blurEnabled,
+        blurDelta = blurStrength,
+        itemSpacing = itemSpacing.dp,
+        anchor = LyricsAnchor.Fraction(focusPosition),
+        scrollAnimationSpec = tween(scrollDuration.roundToInt(), easing = FastOutSlowInEasing),
+        // 0 keeps following off after a manual scroll until the user resyncs, like the default renderer.
+        autoScrollResumeDelayMillis = if (autoResume > 0f) (autoResume * 1000).toLong() else Long.MAX_VALUE,
     )
 }
 
