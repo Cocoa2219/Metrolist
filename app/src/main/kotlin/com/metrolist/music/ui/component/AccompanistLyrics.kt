@@ -234,6 +234,7 @@ fun AccompanistLyricsView(
         useBlurEffect = s.blur,
         blurDelta = s.blurStrength,
         sungLineAlpha = s.sungLineOpacity,
+        lineHighlightPadding = 8.dp,
         onSceneShown = { shownLyrics = it },
         itemSpacing = s.itemSpacing.dp,
         anchor = LyricsAnchor.Fraction(s.focusPosition),

@@ -1,3 +1,4 @@
+// Modified by Metrolist: adds highlightVerticalPadding for the press highlight.
 package com.mocharealm.accompanist.lyrics.ui.composable.lyrics
 
 import com.mocharealm.accompanist.lyrics.ui.internal.effects.lyricsVisualLayer
@@ -19,7 +20,10 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.offset
 import com.mocharealm.gaze.capsule.ContinuousRoundedRectangle
 import kotlin.math.roundToInt
 
@@ -40,6 +44,7 @@ fun LyricsLineItem(
     inactiveAlpha: Float = 0.4f,
     blendMode: BlendMode = BlendMode.SrcOver,
     isInteractive: Boolean = true,
+    highlightVerticalPadding: Dp = 0.dp,
     content: @Composable () -> Unit,
 ) {
     val scaleState by
@@ -84,6 +89,12 @@ fun LyricsLineItem(
         if (isInteractive)
             Box(
                 Modifier.matchParentSize()
+                    // Extend the highlight into the item gap without changing the item's measured height.
+                    .layout { measurable, constraints ->
+                        val pad = highlightVerticalPadding.roundToPx()
+                        val placeable = measurable.measure(constraints.offset(vertical = 2 * pad))
+                        layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, -pad) }
+                    }
                     .clip(ContinuousRoundedRectangle(8.dp))
                     .combinedClickable(onClick = onLineClicked, onLongClick = onLinePressed)
             )

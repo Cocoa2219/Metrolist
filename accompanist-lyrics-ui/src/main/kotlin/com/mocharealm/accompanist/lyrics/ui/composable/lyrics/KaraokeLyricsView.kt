@@ -99,6 +99,8 @@ fun KaraokeLyricsView(
     blurDelta: Float = 3f,
     /** Opacity of lines before the focused one; upcoming lines keep [LyricsLineItem]'s inactive alpha. */
     sungLineAlpha: Float = 0.4f,
+    /** How far the press highlight extends above and below each line, into the item gap. */
+    lineHighlightPadding: Dp = 0.dp,
     /** Called with the lyrics of each scene once it is on screen (scenes swap after preparation). */
     onSceneShown: ((SyncedLyrics) -> Unit)? = null,
     showDebugRectangles: Boolean = false,
@@ -307,6 +309,7 @@ fun KaraokeLyricsView(
                             onLinePressed = { onLinePressed(line) },
                             blurRadius = { blur * focusBlurFactor.value },
                             inactiveAlpha = if (sung) sungLineAlpha else 0.4f,
+                            highlightVerticalPadding = lineHighlightPadding,
                         ) {
                             if (prepared != null)
                                 PreparedLineText(
