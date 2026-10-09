@@ -8,12 +8,13 @@ package com.metrolist.music.lyrics
 /** Ordered worst to best, so `maxOf` picks the better answer. */
 enum class LyricsQuality { NONE, PLAIN, LINE_SYNCED, WORD_SYNCED }
 
-private val LINE_TIMESTAMP = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?]""")
-private val ANY_MARKUP = Regex("""\[[^\]]*]|\{[^}]*}|<[^>]*>""")
+// Android's ICU regex engine rejects an unescaped closing `]` or `}`, so they are always escaped.
+private val LINE_TIMESTAMP = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
+private val ANY_MARKUP = Regex("""\[[^\]]*\]|\{[^}]*\}|<[^>]*>""")
 
 /** A note saying the song has no words, e.g. "纯音乐，请欣赏" or "(Instrumental)". */
 private val NO_WORDS_NOTE = Regex(
-    """^[\s\p{Punct}♪♫，。！～·]*(?:instrumental|纯音乐[\s，,]*请欣赏|此歌曲为没有填词的纯音乐[\s，,]*请您欣赏)?[\s\p{Punct}♪♫，。！～·]*$""",
+    """^[\s\p{P}\p{S}]*(?:instrumental|纯音乐[\s，,]*请欣赏|此歌曲为没有填词的纯音乐[\s，,]*请您欣赏)?[\s\p{P}\p{S}]*$""",
     RegexOption.IGNORE_CASE,
 )
 
