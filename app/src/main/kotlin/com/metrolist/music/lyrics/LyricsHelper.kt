@@ -16,9 +16,14 @@ import com.metrolist.music.utils.reportException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -26,8 +31,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import javax.inject.Inject
 
+private const val TAG = "LyricsHelper"
 private const val MAX_LYRICS_FETCH_MS = 25000L
 private const val PER_PROVIDER_TIMEOUT_MS = 8000L
+/** How long the top source is asked alone before the rest are asked too. */
+private const val LEAD_HOLD_MS = 1000L
 private const val PROVIDER_NONE = ""
 
 class LyricsHelper
@@ -45,6 +53,7 @@ constructor(
     private val cache = LruCache<String, List<LyricsResult>>(MAX_CACHE_SIZE)
     private var currentLyricsJob: Job? = null
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     suspend fun getLyrics(mediaMetadata: MediaMetadata): LyricsWithProvider {
         currentLyricsJob?.cancel()
 
@@ -67,48 +76,78 @@ constructor(
             return LyricsWithProvider(LYRICS_NOT_FOUND, PROVIDER_NONE)
         }
 
-        val result = withTimeoutOrNull(MAX_LYRICS_FETCH_MS) {
-            val cleanedTitle = LyricsUtils.cleanTitleForSearch(mediaMetadata.title)
-            val enabledProviders = orderedProviders.filter { it.isEnabled(context) }
+        val cleanedTitle = LyricsUtils.cleanTitleForSearch(mediaMetadata.title)
+        val artists = mediaMetadata.artists.joinToString { it.name }
+        val enabledProviders = orderedProviders.filter { it.isEnabled(context) }
+        Timber.tag(TAG).d("Fetching lyrics for: $cleanedTitle by $artists from ${enabledProviders.joinToString { it.name }}")
 
-            Timber.tag("LyricsHelper").d("Starting sequential fetch for: $cleanedTitle by ${mediaMetadata.artists.joinToString { it.name }}")
-            Timber.tag("LyricsHelper").d("Enabled providers in order: ${enabledProviders.joinToString { it.name }}")
-
-            for (provider in enabledProviders) {
-                Timber.tag("LyricsHelper").d("Trying provider: ${provider.name}")
-                val providerResult = try {
-                    withTimeoutOrNull(PER_PROVIDER_TIMEOUT_MS) {
-                        provider.getLyrics(
-                            context,
-                            mediaMetadata.id,
-                            cleanedTitle,
-                            mediaMetadata.artists.joinToString { it.name },
-                            mediaMetadata.duration,
-                            mediaMetadata.album?.title,
-                        )
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Timber.tag("LyricsHelper").w("${provider.name} threw: ${e.message}")
-                    null
-                }
-
-                if (providerResult != null && providerResult.isSuccess) {
-                    Timber.tag("LyricsHelper").i("Got lyrics from ${provider.name}")
-                    val filtered = LyricsUtils.filterLyricsCreditLines(providerResult.getOrNull()!!)
-                    return@withTimeoutOrNull LyricsWithProvider(filtered, provider.name)
-                } else {
-                    val errorMsg = providerResult?.exceptionOrNull()?.message ?: "timeout or exception"
-                    Timber.tag("LyricsHelper").w("${provider.name} failed: $errorMsg")
-                }
+        suspend fun ask(rank: Int): LyricsCandidate? {
+            val provider = enabledProviders[rank]
+            val started = System.currentTimeMillis()
+            val candidate = try {
+                withTimeoutOrNull(PER_PROVIDER_TIMEOUT_MS) {
+                    provider.getLyrics(context, mediaMetadata.id, cleanedTitle, artists, mediaMetadata.duration, mediaMetadata.album?.title)
+                }?.getOrNull()
+                    ?.let(::normalizeLyrics)
+                    ?.let { LyricsCandidate(provider.name, it, lyricsQuality(it), rank) }
+                    ?.takeIf { it.quality != LyricsQuality.NONE }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.tag(TAG).w("${provider.name} threw: ${e.message}")
+                null
             }
-
-            Timber.tag("LyricsHelper").w("No lyrics found after checking all providers")
-            LyricsWithProvider(LYRICS_NOT_FOUND, PROVIDER_NONE)
+            Timber.tag(TAG).d("${provider.name}: ${candidate?.quality ?: "miss"} in ${System.currentTimeMillis() - started}ms")
+            return candidate
         }
 
-        return result ?: LyricsWithProvider(LYRICS_NOT_FOUND, PROVIDER_NONE)
+        // Kept outside the overall timeout so a slow walk still returns the best answer so far.
+        val candidates = mutableListOf<LyricsCandidate>()
+        withTimeoutOrNull(MAX_LYRICS_FETCH_MS) {
+            coroutineScope {
+                val landed = Channel<Pair<Int, LyricsCandidate?>>(Channel.UNLIMITED)
+                val jobs = mutableListOf<Job>()
+                val pending = mutableSetOf<Int>()
+                fun launchAsk(rank: Int) {
+                    pending += rank
+                    jobs += launch { landed.send(rank to ask(rank)) }
+                }
+
+                // The top source leads alone, since one request usually settles a song; the rest are
+                // asked in parallel only if it misses, answers without word timing, or is slow.
+                if (enabledProviders.isNotEmpty()) launchAsk(0)
+                var fannedOut = enabledProviders.size <= 1
+                fun fanOut() {
+                    (1 until enabledProviders.size).forEach(::launchAsk)
+                    fannedOut = true
+                }
+
+                while (!isSettled(candidates.best(), pending)) {
+                    if (!fannedOut && pending.isEmpty()) fanOut()
+                    if (pending.isEmpty()) break
+                    val next = if (fannedOut) {
+                        landed.receive()
+                    } else {
+                        select {
+                            landed.onReceive { it }
+                            onTimeout(LEAD_HOLD_MS) { null }
+                        }
+                    }
+                    if (next == null) {
+                        fanOut()
+                        continue
+                    }
+                    pending -= next.first
+                    next.second?.let(candidates::add)
+                }
+                jobs.forEach { it.cancel() }
+            }
+        }
+
+        val best = candidates.best()
+        Timber.tag(TAG).i("Picked ${best?.provider ?: "nothing"} (${best?.quality ?: LyricsQuality.NONE})")
+        return best?.let { LyricsWithProvider(it.lyrics, it.provider) }
+            ?: LyricsWithProvider(LYRICS_NOT_FOUND, PROVIDER_NONE)
     }
 
     suspend fun getAllLyrics(
@@ -151,8 +190,8 @@ constructor(
             val otherJobs = otherProviders.map { provider ->
                 launch {
                     try {
-                        provider.getAllLyrics(context, mediaId, cleanedTitle, songArtists, duration, album) { lyrics ->
-                            val filteredLyrics = LyricsUtils.filterLyricsCreditLines(lyrics)
+                        provider.getAllLyrics(context, mediaId, cleanedTitle, songArtists, duration, album) found@{ lyrics ->
+                            val filteredLyrics = normalizeLyrics(lyrics) ?: return@found
                             val result = LyricsResult(provider.name, filteredLyrics)
                             synchronized(callbackMutex) {
                                 allResult += result
@@ -172,8 +211,8 @@ constructor(
             if (lyricsPlusProvider != null && otherLyricsCount <= 2) {
                 launch {
                     try {
-                        lyricsPlusProvider.getAllLyrics(context, mediaId, cleanedTitle, songArtists, duration, album) { lyrics ->
-                            val filteredLyrics = LyricsUtils.filterLyricsCreditLines(lyrics)
+                        lyricsPlusProvider.getAllLyrics(context, mediaId, cleanedTitle, songArtists, duration, album) found@{ lyrics ->
+                            val filteredLyrics = normalizeLyrics(lyrics) ?: return@found
                             val result = LyricsResult(lyricsPlusProvider.name, filteredLyrics)
                             synchronized(callbackMutex) {
                                 allResult += result
