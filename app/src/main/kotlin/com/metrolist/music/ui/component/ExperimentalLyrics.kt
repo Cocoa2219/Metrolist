@@ -224,6 +224,8 @@ fun ExperimentalLyrics(
     }
 
     val isSynced = remember(lyrics) { lyricsTextLooksSynced(lyrics) }
+    // Accompanist keeps its own clock and follow scroll, so the default renderer's per-frame engine stays off.
+    val accompanistActive = useAccompanist && isSynced
     DisposableEffect(Unit) {
         LyricsTranslationHelper.setCompositionActive(true)
         onDispose {
@@ -334,8 +336,8 @@ fun ExperimentalLyrics(
         }
     }
 
-    LaunchedEffect(lyrics, lines) {
-        if (lyrics.isNullOrEmpty() || lines.isEmpty()) {
+    LaunchedEffect(lyrics, lines, accompanistActive) {
+        if (lyrics.isNullOrEmpty() || lines.isEmpty() || accompanistActive) {
             activeLineIndices = emptySet()
             return@LaunchedEffect
         }
@@ -517,13 +519,12 @@ fun ExperimentalLyrics(
                      LyricsPosition.LEFT -> Alignment.CenterStart; LyricsPosition.CENTER -> Alignment.Center; else -> Alignment.CenterEnd
                  }, modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp)) { TextPlaceholder() } } }
              }
-        } else if (useAccompanist && isSynced) {
+        } else if (accompanistActive) {
+            val accompanistPosition = rememberAccompanistPosition(playerConnection.player, sliderPositionProvider)
             AccompanistLyricsView(
                 lines = lines,
                 listState = accompanistListState,
-                currentPosition = { (currentPositionState + (currentSong?.song?.lyricsOffset ?: 0)).toInt() },
-                isPlaying = { playerConnection.player.isPlaying && !isSeeking },
-                playbackSpeed = { playerConnection.player.playbackParameters.speed },
+                currentPosition = { accompanistPosition.intValue + (currentSong?.song?.lyricsOffset ?: 0) },
                 textColor = expressiveAccent,
                 additiveBlend = playerBackground != PlayerBackgroundStyle.DEFAULT,
                 respectAgentPositioning = respectAgentPositioning,
