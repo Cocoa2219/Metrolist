@@ -217,16 +217,30 @@ fun DynamicBackground(
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         AnimatedDynamicBackground(texture, animate, alpha, modifier)
     } else if (texture != null) {
-        Box(modifier) {
-            Image(
-                bitmap = remember(texture) { texture.asImageBitmap() },
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                alpha = alpha(),
-                modifier = Modifier.fillMaxSize(),
-            )
-            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - BRIGHTNESS) * alpha())))
-        }
+        BlurredCoverBackground(texture, alpha, modifier)
+    }
+}
+
+/**
+ * The blurred cover from [dynamicBackgroundTexture], drawn still under a scrim. A runtime blur over the
+ * whole screen needs several full-screen render targets, which pushed the GPU cache over budget with
+ * Accompanist lyrics and forced every texture to re-upload each frame.
+ */
+@Composable
+fun BlurredCoverBackground(
+    texture: Bitmap,
+    alpha: () -> Float,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier) {
+        Image(
+            bitmap = remember(texture) { texture.asImageBitmap() },
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            alpha = alpha(),
+            modifier = Modifier.fillMaxSize(),
+        )
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - BRIGHTNESS) * alpha())))
     }
 }
 
