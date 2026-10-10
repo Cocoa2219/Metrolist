@@ -48,6 +48,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -55,6 +56,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import com.metrolist.music.constants.DynamicBackgroundBrightnessDefault
+import com.metrolist.music.constants.DynamicBackgroundSaturationDefault
+import com.metrolist.music.constants.DynamicBackgroundSpeedDefault
+import com.metrolist.music.constants.DynamicBackgroundWarpDefault
 import kotlin.math.floor
 
 private const val TEXTURE_SIZE = 128
@@ -139,14 +144,14 @@ uniform float2 uResolution;
 uniform float uTime;
 uniform float uBlend;
 uniform float uAlpha;
+uniform float uWarp;
+uniform float uSaturation;
+uniform float uBrightness;
 uniform shader texPrevious;
 uniform shader texCurrent;
 
 const float TEXTURE_SIZE = 128.0;
-const float WARP_INTENSITY = 1.0;
-const float SATURATION = 1.5;
 const float DITHERING = 0.008;
-const float BRIGHTNESS = 0.7;
 
 float3 mod289(float3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 float2 mod289(float2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -190,15 +195,15 @@ half4 main(float2 fragCoord) {
     float n3 = snoise(uv * 0.9 + float2(t * 1.2, -t) + float2(100.0, 0.0));
     float n4 = snoise(uv * 0.9 + float2(-t, t * 1.1) + float2(0.0, 100.0));
     float2 warp = float2(n1 * 0.65 + n3 * 0.35, n2 * 0.65 + n4 * 0.35) * centerWeight;
-    float2 coord = clamp(uv + warp * WARP_INTENSITY, 0.0, 1.0) * TEXTURE_SIZE;
+    float2 coord = clamp(uv + warp * uWarp, 0.0, 1.0) * TEXTURE_SIZE;
 
     float3 color = mix(texPrevious.eval(coord).rgb, texCurrent.eval(coord).rgb, uBlend);
     float2 center = uv - 0.5;
     color *= 1.0 - dot(center, center) * 0.3;
     float gray = dot(color, float3(0.299, 0.587, 0.114));
-    color = mix(float3(gray), color, SATURATION);
+    color = mix(float3(gray), color, uSaturation);
     color += (hash(float3(floor(fragCoord), floor(uTime * 60.0))) - 0.5) * DITHERING;
-    color *= BRIGHTNESS;
+    color *= uBrightness;
     return half4(half3(clamp(color, 0.0, 1.0)) * uAlpha, uAlpha);
 }
 """
@@ -213,11 +218,15 @@ fun DynamicBackground(
     animate: Boolean,
     alpha: () -> Float,
     modifier: Modifier = Modifier,
+    speed: Float = DynamicBackgroundSpeedDefault,
+    warp: Float = DynamicBackgroundWarpDefault,
+    saturation: Float = DynamicBackgroundSaturationDefault,
+    brightness: Float = DynamicBackgroundBrightnessDefault,
 ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        AnimatedDynamicBackground(texture, animate, alpha, modifier)
+        AnimatedDynamicBackground(texture, animate, alpha, modifier, speed, warp, saturation, brightness)
     } else if (texture != null) {
-        BlurredCoverBackground(texture, alpha, modifier)
+        BlurredCoverBackground(texture, alpha, modifier, brightness)
     }
 }
 
@@ -231,6 +240,7 @@ fun BlurredCoverBackground(
     texture: Bitmap,
     alpha: () -> Float,
     modifier: Modifier = Modifier,
+    brightness: Float = BRIGHTNESS,
 ) {
     Box(modifier) {
         Image(
@@ -240,7 +250,7 @@ fun BlurredCoverBackground(
             alpha = alpha(),
             modifier = Modifier.fillMaxSize(),
         )
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - BRIGHTNESS) * alpha())))
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = (1f - brightness) * alpha())))
     }
 }
 
@@ -251,7 +261,12 @@ private fun AnimatedDynamicBackground(
     animate: Boolean,
     alpha: () -> Float,
     modifier: Modifier,
+    speed: Float,
+    warp: Float,
+    saturation: Float,
+    brightness: Float,
 ) {
+    val latestSpeed = rememberUpdatedState(speed)
     val shader = remember { RuntimeShader(DYNAMIC_BACKGROUND_AGSL) }
     val brush = remember(shader) { ShaderBrush(shader) }
     val time = remember { mutableFloatStateOf(0f) }
@@ -274,7 +289,7 @@ private fun AnimatedDynamicBackground(
         var last = withFrameNanos { it }
         while (true) {
             val now = withFrameNanos { it }
-            time.floatValue += (now - last) / 1_000_000_000f
+            time.floatValue += (now - last) / 1_000_000_000f * latestSpeed.value
             last = now
         }
     }
@@ -286,6 +301,9 @@ private fun AnimatedDynamicBackground(
             shader.setFloatUniform("uTime", time.floatValue)
             shader.setFloatUniform("uBlend", blend.value)
             shader.setFloatUniform("uAlpha", alpha().coerceIn(0f, 1f))
+            shader.setFloatUniform("uWarp", warp)
+            shader.setFloatUniform("uSaturation", saturation)
+            shader.setFloatUniform("uBrightness", brightness)
             shader.setInputShader("texPrevious", previous)
             shader.setInputShader("texCurrent", current)
             drawRect(brush)

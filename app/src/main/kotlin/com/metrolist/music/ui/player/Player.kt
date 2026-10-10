@@ -7,6 +7,14 @@ package com.metrolist.music.ui.player
 
 import androidx.activity.compose.BackHandler
 import android.graphics.Bitmap
+import com.metrolist.music.constants.DynamicBackgroundBrightnessDefault
+import com.metrolist.music.constants.DynamicBackgroundBrightnessKey
+import com.metrolist.music.constants.DynamicBackgroundSaturationDefault
+import com.metrolist.music.constants.DynamicBackgroundSaturationKey
+import com.metrolist.music.constants.DynamicBackgroundSpeedDefault
+import com.metrolist.music.constants.DynamicBackgroundSpeedKey
+import com.metrolist.music.constants.DynamicBackgroundWarpDefault
+import com.metrolist.music.constants.DynamicBackgroundWarpKey
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -873,10 +881,18 @@ fun BottomSheetPlayer(
                     }
 
                     PlayerBackgroundStyle.DYNAMIC -> {
+                        val speed by rememberPreference(DynamicBackgroundSpeedKey, DynamicBackgroundSpeedDefault)
+                        val warp by rememberPreference(DynamicBackgroundWarpKey, DynamicBackgroundWarpDefault)
+                        val saturation by rememberPreference(DynamicBackgroundSaturationKey, DynamicBackgroundSaturationDefault)
+                        val brightness by rememberPreference(DynamicBackgroundBrightnessKey, DynamicBackgroundBrightnessDefault)
                         DynamicBackground(
                             texture = dynamicTexture,
                             animate = isPlaying && state.isExpanded,
                             alpha = { state.progress.coerceIn(0f, 1f) },
+                            speed = speed,
+                            warp = warp,
+                            saturation = saturation,
+                            brightness = brightness,
                         )
                     }
 
