@@ -506,11 +506,14 @@ val DynamicBackgroundSpeedKey = floatPreferencesKey("dynamicBackgroundSpeed")
 val DynamicBackgroundWarpKey = floatPreferencesKey("dynamicBackgroundWarp")
 val DynamicBackgroundSaturationKey = floatPreferencesKey("dynamicBackgroundSaturation")
 val DynamicBackgroundBrightnessKey = floatPreferencesKey("dynamicBackgroundBrightness")
+/** Kawase blur passes applied to the Dynamic background's cover texture. */
+val DynamicBackgroundBlurKey = floatPreferencesKey("dynamicBackgroundBlur")
 
 const val DynamicBackgroundSpeedDefault = 1f
 const val DynamicBackgroundWarpDefault = 1f
 const val DynamicBackgroundSaturationDefault = 1.5f
 const val DynamicBackgroundBrightnessDefault = 0.7f
+const val DynamicBackgroundBlurDefault = 8f
 
 const val AccompanistFontSizeDefault = 34f
 const val AccompanistLineHeightDefault = 1.5f

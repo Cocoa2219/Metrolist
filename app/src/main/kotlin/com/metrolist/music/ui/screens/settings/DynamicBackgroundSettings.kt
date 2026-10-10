@@ -26,6 +26,8 @@ import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
 import com.metrolist.music.constants.DynamicBackgroundBrightnessDefault
 import com.metrolist.music.constants.DynamicBackgroundBrightnessKey
+import com.metrolist.music.constants.DynamicBackgroundBlurDefault
+import com.metrolist.music.constants.DynamicBackgroundBlurKey
 import com.metrolist.music.constants.DynamicBackgroundSaturationDefault
 import com.metrolist.music.constants.DynamicBackgroundSaturationKey
 import com.metrolist.music.constants.DynamicBackgroundSpeedDefault
@@ -46,6 +48,7 @@ fun DynamicBackgroundSettings(navController: NavController) {
     val warp = rememberPreference(DynamicBackgroundWarpKey, DynamicBackgroundWarpDefault)
     val saturation = rememberPreference(DynamicBackgroundSaturationKey, DynamicBackgroundSaturationDefault)
     val brightness = rememberPreference(DynamicBackgroundBrightnessKey, DynamicBackgroundBrightnessDefault)
+    val blur = rememberPreference(DynamicBackgroundBlurKey, DynamicBackgroundBlurDefault)
 
     Column(
         Modifier
@@ -70,6 +73,9 @@ fun DynamicBackgroundSettings(navController: NavController) {
         Material3SettingsGroup(
             title = stringResource(R.string.dynamic_background_color),
             items = listOf(
+                sliderItem(R.drawable.gradient, R.string.dynamic_background_blur, blur, 0f..16f, 15) {
+                    "${it.roundToInt()}"
+                },
                 sliderItem(R.drawable.palette, R.string.dynamic_background_saturation, saturation, 0f..3f, 29) {
                     String.format(Locale.US, "%.1f×", it)
                 },
