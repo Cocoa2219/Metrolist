@@ -9,6 +9,8 @@ import androidx.activity.compose.BackHandler
 import android.graphics.Bitmap
 import com.metrolist.music.constants.DynamicBackgroundBrightnessDefault
 import com.metrolist.music.constants.DynamicBackgroundBrightnessKey
+import com.metrolist.music.constants.DynamicBackgroundBlurDefault
+import com.metrolist.music.constants.DynamicBackgroundBlurKey
 import com.metrolist.music.constants.DynamicBackgroundSaturationDefault
 import com.metrolist.music.constants.DynamicBackgroundSaturationKey
 import com.metrolist.music.constants.DynamicBackgroundSpeedDefault
@@ -841,14 +843,17 @@ fun BottomSheetPlayer(
     val backgroundAlpha = state.progress.coerceIn(0f, 1f)
 
     var dynamicTexture by remember { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(playerBackground, mediaMetadata?.thumbnailUrl) {
+    val dynamicBlur by rememberPreference(DynamicBackgroundBlurKey, DynamicBackgroundBlurDefault)
+    // The Blur style keeps its fixed look; only Dynamic follows the blur setting.
+    val coverBlurPasses = if (playerBackground == PlayerBackgroundStyle.DYNAMIC) dynamicBlur.roundToInt() else DynamicBackgroundBlurDefault.roundToInt()
+    LaunchedEffect(playerBackground, mediaMetadata?.thumbnailUrl, coverBlurPasses) {
         val url = mediaMetadata?.thumbnailUrl
         val usesCoverTexture = playerBackground == PlayerBackgroundStyle.DYNAMIC || playerBackground == PlayerBackgroundStyle.BLUR
         if (!usesCoverTexture || url == null) return@LaunchedEffect
         val request = ImageRequest.Builder(context).data(url).size(256, 256).allowHardware(false).build()
         val cover = runCatching { context.imageLoader.execute(request) }.getOrNull()?.image?.toBitmap()
             ?: return@LaunchedEffect
-        dynamicTexture = withContext(Dispatchers.Default) { dynamicBackgroundTexture(cover) }
+        dynamicTexture = withContext(Dispatchers.Default) { dynamicBackgroundTexture(cover, coverBlurPasses) }
     }
 
     BottomSheet(

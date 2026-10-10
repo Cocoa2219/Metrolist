@@ -75,7 +75,7 @@ private const val BRIGHTNESS = 0.7f
  * Runs once per cover: tints dark areas, then blurs a [TEXTURE_SIZE]² copy with Kawase passes.
  * The per-frame shader only warps this small texture, so no blur or offscreen layer runs per frame.
  */
-fun dynamicBackgroundTexture(cover: Bitmap): Bitmap {
+fun dynamicBackgroundTexture(cover: Bitmap, blurPasses: Int = BLUR_PASSES): Bitmap {
     val n = TEXTURE_SIZE
     val scaled = Bitmap.createScaledBitmap(cover, n, n, true)
     val pixels = IntArray(n * n)
@@ -98,7 +98,7 @@ fun dynamicBackgroundTexture(cover: Bitmap): Bitmap {
 
     var write = FloatArray(read.size)
     val tap = FloatArray(3)
-    repeat(BLUR_PASSES) { pass ->
+    repeat(blurPasses.coerceIn(0, 16)) { pass ->
         val offset = pass + 0.5f
         for (y in 0 until n) for (x in 0 until n) {
             var r = 0f; var g = 0f; var b = 0f
