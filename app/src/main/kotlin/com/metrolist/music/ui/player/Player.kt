@@ -89,7 +89,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -836,7 +835,8 @@ fun BottomSheetPlayer(
     var dynamicTexture by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(playerBackground, mediaMetadata?.thumbnailUrl) {
         val url = mediaMetadata?.thumbnailUrl
-        if (playerBackground != PlayerBackgroundStyle.DYNAMIC || url == null) return@LaunchedEffect
+        val usesCoverTexture = playerBackground == PlayerBackgroundStyle.DYNAMIC || playerBackground == PlayerBackgroundStyle.BLUR
+        if (!usesCoverTexture || url == null) return@LaunchedEffect
         val request = ImageRequest.Builder(context).data(url).size(256, 256).allowHardware(false).build()
         val cover = runCatching { context.imageLoader.execute(request) }.getOrNull()?.image?.toBitmap()
             ?: return@LaunchedEffect
@@ -856,36 +856,18 @@ fun BottomSheetPlayer(
                 when (playerBackground) {
                     PlayerBackgroundStyle.BLUR -> {
                         AnimatedContent(
-                            targetState = mediaMetadata?.thumbnailUrl,
+                            targetState = dynamicTexture,
                             transitionSpec = {
                                 fadeIn(tween(800)).togetherWith(fadeOut(tween(800)))
                             },
                             label = "blurBackground",
-                        ) { thumbnailUrl ->
-                            if (thumbnailUrl != null) {
-                                Box(modifier = Modifier.alpha(backgroundAlpha)) {
-                                    AsyncImage(
-                                        model =
-                                            ImageRequest
-                                                .Builder(context)
-                                                .data(thumbnailUrl)
-                                                .size(100, 100)
-                                                .allowHardware(false)
-                                                .build(),
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier =
-                                            Modifier
-                                                .fillMaxSize()
-                                                .blur(if (useDarkTheme) 150.dp else 100.dp),
-                                    )
-                                    Box(
-                                        modifier =
-                                            Modifier
-                                                .fillMaxSize()
-                                                .background(Color.Black.copy(alpha = 0.3f)),
-                                    )
-                                }
+                        ) { texture ->
+                            if (texture != null) {
+                                BlurredCoverBackground(
+                                    texture = texture,
+                                    alpha = { state.progress.coerceIn(0f, 1f) },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
                             }
                         }
                     }
