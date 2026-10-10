@@ -1,3 +1,4 @@
+// Modified by Metrolist: syllables reuse their word's raster and text tiles use a smaller margin.
 package com.mocharealm.accompanist.lyrics.ui.internal.rendering
 
 import androidx.compose.ui.draw.CacheDrawScope
@@ -22,6 +23,7 @@ import com.mocharealm.accompanist.lyrics.ui.profile.DefaultLyricsProfiles
 import com.mocharealm.accompanist.lyrics.ui.profile.LyricsProfile
 import com.mocharealm.accompanist.lyrics.ui.profile.ProfileTextUnit
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /** Fixed-origin raster tiles are prepared off the UI thread as lines enter the working set. */
 internal class PreparedRowLayers(
@@ -46,7 +48,8 @@ internal class PreparedRowLayers(
                         val unit = group.units[unitIndex]
                         UnitLayers(
                             if (unit.text === group.staticText && combined != null) combined
-                            else atlas.text(run.profile, unit.text, color),
+                            else combined?.sliceFor(run.profile, group.staticText, unit.text)
+                                ?: atlas.text(run.profile, unit.text, color),
                             group.effects.glow,
                             unit.phonetic?.let { layout ->
                                 atlas.cached(
@@ -119,8 +122,9 @@ internal class RowGlowLayers(
     private fun createLayer(tile: TextLayer, offscreen: Boolean): GraphicsLayer =
         scope.obtainGraphicsLayer().apply {
             if (offscreen) compositingStrategy = CompositingStrategy.Offscreen
-            record(scope, scope.layoutDirection, tile.dimensions) {
-                translate(tile.padding.toFloat(), tile.padding.toFloat()) { with(tile) { draw() } }
+            val size = IntSize(tile.dimensions.width + 2 * GlowMargin, tile.dimensions.height + 2 * GlowMargin)
+            record(scope, scope.layoutDirection, size) {
+                translate(GlowMargin.toFloat(), GlowMargin.toFloat()) { with(tile) { drawPixels() } }
             }
         }
 }
@@ -135,20 +139,78 @@ internal fun DrawScope.drawUnit(
     if (shadowIndex > 0 && glow != null) {
         glow.renderEffect = paints.blurEffects[shadowIndex]
         glow.alpha = opacity * 0.4f * shadowIndex / 64f
-        translate(-unit.text.padding.toFloat(), -unit.text.padding.toFloat()) { drawLayer(glow) }
+        translate(unit.text.originX - GlowMargin, unit.text.originY - GlowMargin) { drawLayer(glow) }
     }
     with(unit.text) { draw(opacity) }
 }
 
-internal class TextLayer(val source: IntOffset, val dimensions: IntSize, val padding: Int) {
-    lateinit var image: ImageBitmap
-    private val destination = IntOffset(-padding, -padding)
+/** Room for the glow blur around a unit, kept separately so text tiles need only a small margin. */
+private const val GlowMargin = 32
+
+/** Margin around text tiles for glyphs that overhang their layout box. */
+private const val TextMargin = 12
+
+/**
+ * A rectangle of an atlas page. [originX]/[originY] place its top-left corner relative to the text
+ * origin. A slice shares its parent's pixels instead of rasterizing the same glyphs again.
+ */
+internal class TextLayer(
+    val source: IntOffset,
+    val dimensions: IntSize,
+    val padding: Int,
+    val originX: Float = -padding.toFloat(),
+    val originY: Float = -padding.toFloat(),
+    private val parent: TextLayer? = null,
+) {
+    private var ownImage: ImageBitmap? = null
+    var image: ImageBitmap
+        get() = parent?.image ?: checkNotNull(ownImage) { "Text tile drawn before its page was rasterized" }
+        set(value) {
+            ownImage = value
+        }
     private val paint = Paint().apply { filterQuality = FilterQuality.Low }
 
     fun DrawScope.draw(alpha: Float = 1f) {
-        paint.alpha = alpha
-        drawContext.canvas.drawImageRect(image, source, dimensions, destination, dimensions, paint)
+        translate(originX, originY) { drawPixels(alpha) }
     }
+
+    /** Draws the tile's pixels with their top-left corner at the current origin. */
+    fun DrawScope.drawPixels(alpha: Float = 1f) {
+        paint.alpha = alpha
+        drawContext.canvas.drawImageRect(image, source, dimensions, IntOffset.Zero, dimensions, paint)
+    }
+
+    /**
+     * The pixels of [unit] inside this tile, which was rasterized for [whole]. Syllables of one word
+     * share its text layout, so their glyphs are exactly a slice of the word's raster. Inner edges
+     * are cut at the syllable boundary like the syllable's own clip; outer edges keep the margin.
+     */
+    fun sliceFor(profile: LyricsProfile, whole: ProfileTextUnit?, unit: ProfileTextUnit): TextLayer? {
+        if (whole == null || unit.layout !== whole.layout) return null
+        if (DefaultLyricsProfiles.none { it === profile }) return null
+        val from = unit.left - whole.rasterOriginX()
+        val to = unit.right - whole.rasterOriginX()
+        val start = if (unit.left <= whole.left) 0 else (padding + from).roundToInt().coerceIn(0, dimensions.width)
+        val end =
+            if (unit.right >= whole.right) dimensions.width
+            else (padding + to).roundToInt().coerceIn(start, dimensions.width)
+        if (end <= start) return null
+        return TextLayer(
+            IntOffset(source.x + start, source.y),
+            IntSize(end - start, dimensions.height),
+            padding,
+            originX = start - padding - from,
+            originY = originY,
+            parent = this,
+        )
+    }
+}
+
+/** Where [DefaultLyricsProfile] places the layout's x = 0 relative to this unit's raster origin. */
+private fun ProfileTextUnit.rasterOriginX(): Float {
+    val range = sourceRange
+    val coversWholeLayout = range?.min == 0 && range.max == layout.layoutInput.text.length
+    return if (coversWholeLayout || (left == 0f && right == layout.size.width.toFloat())) 0f else left
 }
 
 /** Reuses display-unit tiles across rows while keeping shared texture pages under a byte budget. */
@@ -262,11 +324,11 @@ private class TextAtlas(
     ): TextLayer {
         val key = rasterKey(profile, text, color, shadow)
         return if (key == null)
-            add(text.width, kotlin.math.ceil(text.height).toInt(), 32) {
+            add(text.width, kotlin.math.ceil(text.height).toInt(), TextMargin) {
                 with(profile) { draw(text, color, shadow) }
             }
         else
-            cached(key, text.width, kotlin.math.ceil(text.height).toInt(), 32) {
+            cached(key, text.width, kotlin.math.ceil(text.height).toInt(), TextMargin) {
                 with(profile) { draw(text, color, shadow) }
             }
     }
