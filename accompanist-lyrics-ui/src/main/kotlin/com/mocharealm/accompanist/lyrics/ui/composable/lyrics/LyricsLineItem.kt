@@ -1,4 +1,4 @@
-// Modified by Metrolist: adds highlightVerticalPadding for the press highlight.
+// Modified by Metrolist: adds highlightVerticalPadding for the press highlight, and steps the focus blur radius.
 package com.mocharealm.accompanist.lyrics.ui.composable.lyrics
 
 import com.mocharealm.accompanist.lyrics.ui.internal.effects.lyricsVisualLayer
@@ -26,6 +26,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.offset
 import com.mocharealm.gaze.capsule.ContinuousRoundedRectangle
 import kotlin.math.roundToInt
+
+private const val FocusBlurStep = 4
 
 private val FocusBlurEffects =
     Array<RenderEffect?>(65) { index ->
@@ -82,7 +84,10 @@ fun LyricsLineItem(
                     blurRadius()
                         .takeIf { it.isFinite() }
                         ?: 0f
-                renderEffect = FocusBlurEffects[radius.roundToInt().coerceIn(0, 64)]
+                // Coarse steps keep the blur layer stable while the radius animates instead of
+                // reallocating it every frame.
+                val step = (radius / FocusBlurStep).roundToInt() * FocusBlurStep
+                renderEffect = FocusBlurEffects[step.coerceIn(0, 64)]
             }
     ) {
         // Clip the ripple, never the lyrics that can draw beyond their animated layout height.
