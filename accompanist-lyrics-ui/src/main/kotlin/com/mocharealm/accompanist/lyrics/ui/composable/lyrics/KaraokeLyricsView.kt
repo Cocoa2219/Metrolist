@@ -1,4 +1,5 @@
-// Modified by Metrolist: adds sungLineAlpha and onSceneShown, and reads lines from the scene so a retained scene stays consistent.
+// Modified by Metrolist: adds sungLineAlpha and onSceneShown, reads lines from the scene so a retained scene stays consistent,
+// and limits the focus blur to nearby lines with a capped radius.
 package com.mocharealm.accompanist.lyrics.ui.composable.lyrics
 
 import com.mocharealm.accompanist.lyrics.ui.internal.layout.lyricsAutoScroll
@@ -41,6 +42,9 @@ import com.mocharealm.accompanist.lyrics.ui.profile.DefaultLyricsProfiles
 import com.mocharealm.accompanist.lyrics.ui.profile.LyricsProfile
 import com.mocharealm.accompanist.lyrics.ui.internal.scene.LyricsLayoutRequest
 import com.mocharealm.accompanist.lyrics.ui.internal.text.isRtl
+
+private const val MaxBlurredDistance = 3
+private const val MaxFocusBlurRadius = 12f
 
 /**
  * Prepares a complete scene when content, profiles, typography or available width changes. Playback
@@ -261,8 +265,13 @@ fun KaraokeLyricsView(
                         (focus.allIndices.firstOrNull() ?: focus.firstIndex) - index,
                         index - (focus.allIndices.lastOrNull() ?: focus.firstIndex),
                     )
+                // Each blurred line is its own offscreen layer; blurring every line filled the GPU
+                // cache and forced text pages to re-upload each frame, so only nearby lines blur.
                 val blur by
-                animateFloatAsState(if (useBlurEffect) distance * blurDelta else 0f, tween(300))
+                animateFloatAsState(
+                    if (useBlurEffect && distance <= MaxBlurredDistance) minOf(distance * blurDelta, MaxFocusBlurRadius) else 0f,
+                    tween(300),
+                )
                 Column {
                     if (index == 0 && focus.activeIntro)
                         KaraokeBreathingDots(
