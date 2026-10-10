@@ -502,6 +502,16 @@ val AccompanistScrollDurationKey = floatPreferencesKey("accompanistScrollDuratio
 /** Seconds before following resumes after a manual scroll; 0 waits for the resync button. */
 val AccompanistAutoResumeKey = floatPreferencesKey("accompanistAutoResume")
 
+val DynamicBackgroundSpeedKey = floatPreferencesKey("dynamicBackgroundSpeed")
+val DynamicBackgroundWarpKey = floatPreferencesKey("dynamicBackgroundWarp")
+val DynamicBackgroundSaturationKey = floatPreferencesKey("dynamicBackgroundSaturation")
+val DynamicBackgroundBrightnessKey = floatPreferencesKey("dynamicBackgroundBrightness")
+
+const val DynamicBackgroundSpeedDefault = 1f
+const val DynamicBackgroundWarpDefault = 1f
+const val DynamicBackgroundSaturationDefault = 1.5f
+const val DynamicBackgroundBrightnessDefault = 0.7f
+
 const val AccompanistFontSizeDefault = 34f
 const val AccompanistLineHeightDefault = 1.5f
 const val AccompanistItemSpacingDefault = 8f

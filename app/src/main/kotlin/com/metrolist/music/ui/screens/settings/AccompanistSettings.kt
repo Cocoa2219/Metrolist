@@ -142,7 +142,7 @@ fun AccompanistSettings(navController: NavController) {
 
 /** The slider only writes the preference when released, so dragging doesn't spam DataStore. */
 @Composable
-private fun sliderItem(
+internal fun sliderItem(
     @DrawableRes icon: Int,
     title: Int,
     preference: MutableState<Float>,

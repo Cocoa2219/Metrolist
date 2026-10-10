@@ -1110,7 +1110,7 @@ fun AppearanceSettings(
         Material3SettingsGroup(
             title = stringResource(R.string.player),
             items =
-                listOf(
+                listOfNotNull(
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.palette),
                         title = { Text(stringResource(R.string.new_player_design)) },
@@ -1147,6 +1147,15 @@ fun AppearanceSettings(
                         },
                         onClick = { showPlayerBackgroundDialog = true },
                     ),
+                    if (playerBackground == PlayerBackgroundStyle.DYNAMIC) {
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.tune),
+                            title = { Text(stringResource(R.string.dynamic_background_settings)) },
+                            onClick = { navController.navigate("settings/appearance/dynamic_background") },
+                        )
+                    } else {
+                        null
+                    },
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.hide_image),
                         title = { Text(stringResource(R.string.hide_player_thumbnail)) },
