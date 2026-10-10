@@ -43,7 +43,7 @@ import com.mocharealm.accompanist.lyrics.ui.profile.LyricsProfile
 import com.mocharealm.accompanist.lyrics.ui.internal.scene.LyricsLayoutRequest
 import com.mocharealm.accompanist.lyrics.ui.internal.text.isRtl
 
-private const val MaxBlurredDistance = 3
+private const val MaxBlurredDistance = 5
 private const val MaxFocusBlurRadius = 12f
 
 /**
