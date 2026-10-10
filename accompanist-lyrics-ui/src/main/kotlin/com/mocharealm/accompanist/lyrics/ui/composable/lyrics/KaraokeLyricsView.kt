@@ -1,5 +1,5 @@
 // Modified by Metrolist: adds sungLineAlpha and onSceneShown, reads lines from the scene so a retained scene stays consistent,
-// and limits the focus blur to nearby lines with a capped radius.
+// and limits the focus blur to lines near the viewport with a capped radius.
 package com.mocharealm.accompanist.lyrics.ui.composable.lyrics
 
 import com.mocharealm.accompanist.lyrics.ui.internal.layout.lyricsAutoScroll
@@ -43,7 +43,6 @@ import com.mocharealm.accompanist.lyrics.ui.profile.LyricsProfile
 import com.mocharealm.accompanist.lyrics.ui.internal.scene.LyricsLayoutRequest
 import com.mocharealm.accompanist.lyrics.ui.internal.text.isRtl
 
-private const val MaxBlurredDistance = 5
 private const val MaxFocusBlurRadius = 12f
 
 /**
@@ -265,13 +264,16 @@ fun KaraokeLyricsView(
                         (focus.allIndices.firstOrNull() ?: focus.firstIndex) - index,
                         index - (focus.allIndices.lastOrNull() ?: focus.firstIndex),
                     )
-                // Each blurred line is its own offscreen layer; blurring every line filled the GPU
-                // cache and forced text pages to re-upload each frame, so only nearby lines blur.
+                // Each blurred line is its own offscreen layer, so only lines near the viewport blur:
+                // the cost is bounded by the screen area whatever the font size or line height.
                 val blur by
                 animateFloatAsState(
-                    if (useBlurEffect && distance <= MaxBlurredDistance) minOf(distance * blurDelta, MaxFocusBlurRadius) else 0f,
+                    if (useBlurEffect) minOf(distance * blurDelta, MaxFocusBlurRadius) else 0f,
                     tween(300),
                 )
+                val nearViewport by remember(listState, itemIndex) {
+                    derivedStateOf { listState.isNearViewport(itemIndex) }
+                }
                 Column {
                     if (index == 0 && focus.activeIntro)
                         KaraokeBreathingDots(
@@ -316,7 +318,7 @@ fun KaraokeLyricsView(
                                 onLineClicked(line)
                             },
                             onLinePressed = { onLinePressed(line) },
-                            blurRadius = { blur * focusBlurFactor.value },
+                            blurRadius = { if (nearViewport) blur * focusBlurFactor.value else 0f },
                             inactiveAlpha = if (sung) sungLineAlpha else 0.4f,
                             highlightVerticalPadding = lineHighlightPadding,
                         ) {

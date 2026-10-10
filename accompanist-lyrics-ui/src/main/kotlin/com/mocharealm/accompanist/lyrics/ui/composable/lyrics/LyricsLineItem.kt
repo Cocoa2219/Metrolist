@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.offset
 import com.mocharealm.gaze.capsule.ContinuousRoundedRectangle
 import kotlin.math.roundToInt
 
-private const val FocusBlurStep = 4
+private const val FocusBlurStep = 2
 
 private val FocusBlurEffects =
     Array<RenderEffect?>(65) { index ->
@@ -85,8 +85,11 @@ fun LyricsLineItem(
                         .takeIf { it.isFinite() }
                         ?: 0f
                 // Coarse steps keep the blur layer stable while the radius animates instead of
-                // reallocating it every frame.
-                val step = (radius / FocusBlurStep).roundToInt() * FocusBlurStep
+                // reallocating it every frame. Any visible blur keeps at least one step, so light
+                // blur strengths still blur the lines next to the focused one.
+                val step =
+                    if (radius < 0.5f) 0
+                    else (radius / FocusBlurStep).roundToInt().coerceAtLeast(1) * FocusBlurStep
                 renderEffect = FocusBlurEffects[step.coerceIn(0, 64)]
             }
     ) {
