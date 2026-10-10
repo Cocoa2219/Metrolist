@@ -1,3 +1,4 @@
+// Modified by Metrolist: exposes whether an item is near the viewport.
 package com.mocharealm.accompanist.lyrics.ui.composable.list
 
 import com.mocharealm.accompanist.lyrics.ui.internal.layout.LyricsHeightIndex
@@ -669,7 +670,24 @@ class LyricsLazyListState(
         ready = true
     }
 
+    private var contentTop by mutableIntStateOf(0)
+    private var viewportHeight by mutableIntStateOf(0)
+
+    /**
+     * Whether item [index] overlaps the viewport, extended by a quarter of its height on each side
+     * so items moved by the scroll chain's springs are covered before they come into view.
+     */
+    internal fun isNearViewport(index: Int): Boolean {
+        if (index !in 0 until heights.size || viewportHeight == 0) return false
+        val margin = viewportHeight / 4.0
+        val itemTop = contentTop + heights.top(index)
+        val itemBottom = itemTop + heights.height(index)
+        return itemBottom > position - margin && itemTop < position + viewportHeight + margin
+    }
+
     internal fun updateRange(top: Int, bottom: Int, viewport: Int) {
+        if (contentTop != top) contentTop = top
+        if (viewportHeight != viewport) viewportHeight = viewport
         val previousMaxPosition = maxPosition
         maxPosition =
             if (heights.size == 0) 0.0
