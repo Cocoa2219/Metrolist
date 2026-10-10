@@ -35,6 +35,7 @@ import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.utils.CrashHandler
 import com.metrolist.music.utils.ArtistNameAliases
 import com.metrolist.music.utils.InnerTubeXPlayer
+import com.metrolist.music.utils.YouTubeThumbnailInterceptor
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.safeDataStoreEdit
 import com.metrolist.music.utils.reportException
@@ -304,6 +305,7 @@ class App :
             .apply {
                 crossfade(true)
                 allowHardware(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P)
+                components { add(YouTubeThumbnailInterceptor()) }
                 // Memory cache for fast image loading (prevents network requests on recomposition)
                 memoryCache {
                     MemoryCache
