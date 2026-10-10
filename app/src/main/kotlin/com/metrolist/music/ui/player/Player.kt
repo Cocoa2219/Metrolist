@@ -6,6 +6,7 @@
 package com.metrolist.music.ui.player
 
 import androidx.activity.compose.BackHandler
+import android.graphics.Bitmap
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -253,7 +254,7 @@ fun BottomSheetPlayer(
     val shouldUseDarkButtonColors =
         remember(playerBackground, useDarkTheme) {
             when (playerBackground) {
-                PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> true
+                PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT, PlayerBackgroundStyle.DYNAMIC -> true
                 PlayerBackgroundStyle.DEFAULT -> useDarkTheme
             }
         }
@@ -268,7 +269,7 @@ fun BottomSheetPlayer(
             val insetsController = WindowCompat.getInsetsController(window, window.decorView)
 
             when (playerBackground) {
-                PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> {
+                PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT, PlayerBackgroundStyle.DYNAMIC -> {
                     insetsController.isAppearanceLightStatusBars = false
                 }
 
@@ -460,7 +461,7 @@ fun BottomSheetPlayer(
         targetValue =
             when (playerBackground) {
                 PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.onBackground
-                PlayerBackgroundStyle.BLUR -> Color.White
+                PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.DYNAMIC -> Color.White
                 PlayerBackgroundStyle.GRADIENT -> Color.White
             },
         label = "TextBackgroundColor",
@@ -470,7 +471,7 @@ fun BottomSheetPlayer(
         targetValue =
             when (playerBackground) {
                 PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.surface
-                PlayerBackgroundStyle.BLUR -> Color.Black
+                PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.DYNAMIC -> Color.Black
                 PlayerBackgroundStyle.GRADIENT -> Color.Black
             },
         label = "icBackgroundColor",
@@ -479,7 +480,8 @@ fun BottomSheetPlayer(
     val (textButtonColor, iconButtonColor) =
         when {
             playerBackground == PlayerBackgroundStyle.BLUR ||
-                playerBackground == PlayerBackgroundStyle.GRADIENT -> {
+                playerBackground == PlayerBackgroundStyle.GRADIENT ||
+                playerBackground == PlayerBackgroundStyle.DYNAMIC -> {
                 when (playerButtonsStyle) {
                     PlayerButtonsStyle.DEFAULT -> {
                         Pair(Color.White, Color.Black)
@@ -532,7 +534,8 @@ fun BottomSheetPlayer(
     val (sideButtonContainerColor, sideButtonContentColor) =
         when {
             playerBackground == PlayerBackgroundStyle.BLUR ||
-                playerBackground == PlayerBackgroundStyle.GRADIENT -> {
+                playerBackground == PlayerBackgroundStyle.GRADIENT ||
+                playerBackground == PlayerBackgroundStyle.DYNAMIC -> {
                 when (playerButtonsStyle) {
                     PlayerButtonsStyle.DEFAULT -> {
                         Pair(
@@ -815,7 +818,7 @@ fun BottomSheetPlayer(
 
     val bottomSheetBackgroundColor =
         when (playerBackground) {
-            PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> {
+            PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT, PlayerBackgroundStyle.DYNAMIC -> {
                 MaterialTheme.colorScheme.surfaceContainer
             }
 
@@ -829,6 +832,16 @@ fun BottomSheetPlayer(
         }
 
     val backgroundAlpha = state.progress.coerceIn(0f, 1f)
+
+    var dynamicTexture by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(playerBackground, mediaMetadata?.thumbnailUrl) {
+        val url = mediaMetadata?.thumbnailUrl
+        if (playerBackground != PlayerBackgroundStyle.DYNAMIC || url == null) return@LaunchedEffect
+        val request = ImageRequest.Builder(context).data(url).size(256, 256).allowHardware(false).build()
+        val cover = runCatching { context.imageLoader.execute(request) }.getOrNull()?.image?.toBitmap()
+            ?: return@LaunchedEffect
+        dynamicTexture = withContext(Dispatchers.Default) { dynamicBackgroundTexture(cover) }
+    }
 
     BottomSheet(
         state = state,
@@ -875,6 +888,14 @@ fun BottomSheetPlayer(
                                 }
                             }
                         }
+                    }
+
+                    PlayerBackgroundStyle.DYNAMIC -> {
+                        DynamicBackground(
+                            texture = dynamicTexture,
+                            animate = isPlaying && state.isExpanded,
+                            alpha = { state.progress.coerceIn(0f, 1f) },
+                        )
                     }
 
                     PlayerBackgroundStyle.GRADIENT -> {
