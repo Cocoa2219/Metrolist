@@ -183,6 +183,8 @@ android {
 
     androidResources {
         generateLocaleConfig = true
+        // Romanization dictionaries are memory-mapped straight from the APK, which needs them stored.
+        noCompress += "lpd"
     }
 
     packaging {
@@ -295,8 +297,10 @@ dependencies {
     "gmsImplementation"(libs.cast.framework)
 
     implementation(libs.room.runtime)
-    implementation(libs.kuromoji.ipadic)
-    implementation(libs.tinypinyin)
+    implementation(libs.accompanist.lyrics.phonetics.runtime)
+    implementation(libs.accompanist.lyrics.phonetics.data.japanese)
+    implementation(libs.accompanist.lyrics.phonetics.data.mandarin)
+    implementation(libs.accompanist.lyrics.phonetics.data.cantonese)
     ksp(libs.room.compiler)
 
     implementation(libs.hilt)

@@ -28,14 +28,13 @@ shimmer = "1.5.0"
 gazeCapsule = "2.1.1-patch2"
 profileinstaller = "1.4.1"
 accompanistLyricsCore = "0.5.0"
+accompanistLyricsPhonetics = "0.1.0"
 palette = "1.0.0"
 desugaring = "2.1.5"
 junit = "4.13.2"
 timber = "5.0.1"
 materialKolor = "5.0.1"
-kuromojiIpadic = "0.9.0"
 innertubex = "v0.7.0"
-tinypinyin = "2.0.3"
 protobuf = "4.36.2"
 
 [libraries]
@@ -74,6 +73,10 @@ shimmer = { module = "com.valentinilk.shimmer:compose-shimmer", version.ref = "s
 gaze-capsule = { module = "com.mocharealm.gaze:capsule", version.ref = "gazeCapsule" }
 profileinstaller = { module = "androidx.profileinstaller:profileinstaller", version.ref = "profileinstaller" }
 accompanist-lyrics-core = { module = "com.mocharealm.accompanist:lyrics-core", version.ref = "accompanistLyricsCore" }
+accompanist-lyrics-phonetics-runtime = { module = "com.mocharealm.accompanist:lyrics-phonetics-runtime", version.ref = "accompanistLyricsPhonetics" }
+accompanist-lyrics-phonetics-data-japanese = { module = "com.mocharealm.accompanist:lyrics-phonetics-data-japanese", version.ref = "accompanistLyricsPhonetics" }
+accompanist-lyrics-phonetics-data-mandarin = { module = "com.mocharealm.accompanist:lyrics-phonetics-data-mandarin", version.ref = "accompanistLyricsPhonetics" }
+accompanist-lyrics-phonetics-data-cantonese = { module = "com.mocharealm.accompanist:lyrics-phonetics-data-cantonese", version.ref = "accompanistLyricsPhonetics" }
 
 palette = { module = "androidx.palette:palette", version.ref = "palette" }
 
@@ -108,8 +111,6 @@ timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
 
 innertubex = { module = "com.github.MetrolistGroup.innertubex:innertubex", version.ref = "innertubex" }
 
-kuromoji-ipadic = { module = "com.atilika.kuromoji:kuromoji-ipadic", version.ref = "kuromojiIpadic" }
-tinypinyin = { module = "com.github.promeG:tinypinyin", version.ref = "tinypinyin" }
 
 protobuf-javalite = { module = "com.google.protobuf:protobuf-javalite", version.ref = "protobuf" }
 protobuf-kotlin-lite = { module = "com.google.protobuf:protobuf-kotlin-lite", version.ref = "protobuf" }

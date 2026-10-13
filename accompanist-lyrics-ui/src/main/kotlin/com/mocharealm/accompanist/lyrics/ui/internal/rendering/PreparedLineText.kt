@@ -1,3 +1,4 @@
+// Modified by Metrolist: draws the line romanization above the translation, and the translation at TranslationAlpha.
 package com.mocharealm.accompanist.lyrics.ui.internal.rendering
 
 import androidx.compose.animation.core.animateFloatAsState
@@ -200,6 +201,18 @@ internal fun PreparedLineText(
                     }
                 )
             }
+            prepared.phonetic?.let { layout ->
+                LyricsReveal(showPhonetic, keepContent = true) {
+                    Canvas(
+                        Modifier.size(
+                            with(density) { layout.size.width.toDp() },
+                            with(density) { layout.size.height.toDp() },
+                        )
+                    ) {
+                        drawText(layout, paints.phoneticColor)
+                    }
+                }
+            }
             prepared.translation?.let { layout ->
                 LyricsReveal(showTranslation, keepContent = true) {
                     Canvas(
@@ -210,20 +223,8 @@ internal fun PreparedLineText(
                     ) {
                         drawText(
                             layout,
-                            activeColor.copy(alpha = activeColor.alpha * FocusedRowUnlitAlpha),
+                            activeColor.copy(alpha = activeColor.alpha * TranslationAlpha),
                         )
-                    }
-                }
-            }
-            prepared.phonetic?.let { layout ->
-                LyricsReveal(showPhonetic, keepContent = true) {
-                    Canvas(
-                        Modifier.size(
-                            with(density) { layout.size.width.toDp() },
-                            with(density) { layout.size.height.toDp() },
-                        )
-                    ) {
-                        drawText(layout, paints.phoneticColor)
                     }
                 }
             }

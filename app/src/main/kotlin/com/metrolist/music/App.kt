@@ -31,6 +31,7 @@ import com.metrolist.music.BuildConfig
 import com.metrolist.music.constants.*
 import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
+import com.metrolist.music.lyrics.LyricsPhonetics
 import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.utils.CrashHandler
 import com.metrolist.music.utils.ArtistNameAliases
@@ -91,6 +92,7 @@ class App :
         // Plant logging before extraction services initialize.
         Timber.plant(Timber.DebugTree())
         InnerTubeXPlayer.initialize(this)
+        LyricsPhonetics.initialize(this)
 
         // Pre-read Coil cache size on background to avoid runBlocking in newImageLoader
         applicationScope.launch(Dispatchers.IO) {
@@ -195,6 +197,13 @@ class App :
     }
 
     private fun observeSettingsChanges() {
+        applicationScope.launch {
+            dataStore.data
+                .map { it[ChineseReadingKey].toEnum(ChineseReading.MANDARIN) }
+                .distinctUntilChanged()
+                .collect { LyricsPhonetics.chineseReading = it }
+        }
+
         applicationScope.launch(Dispatchers.IO) {
             dataStore.data
                 .map { it[VisitorDataKey] }

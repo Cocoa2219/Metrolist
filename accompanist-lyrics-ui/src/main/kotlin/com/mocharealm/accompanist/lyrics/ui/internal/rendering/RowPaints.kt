@@ -1,3 +1,4 @@
+// Modified by Metrolist: adds TranslationAlpha, so translations stay readable as secondary text.
 package com.mocharealm.accompanist.lyrics.ui.internal.rendering
 
 import androidx.compose.ui.geometry.Offset
@@ -5,6 +6,8 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.*
 
 internal const val FocusedRowUnlitAlpha = 0.2f
+
+internal const val TranslationAlpha = 0.6f
 
 /** Color-dependent paints are cached; playback selects a shadow without allocating one. */
 internal class RowPaints(color: Color) {
