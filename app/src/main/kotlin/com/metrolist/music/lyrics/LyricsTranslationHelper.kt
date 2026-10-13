@@ -107,25 +107,6 @@ object LyricsTranslationHelper {
         return "${text.hashCode()}_${mode}_${targetLanguage}"
     }
 
-    /**
-     * Attempts to parse partial translation content from the AI.
-     * This allows updating the UI progressively during streaming.
-     */
-    private fun tryParsePartialTranslation(content: String, expectedLines: Int): List<String> {
-        // AI usually returns lines separated by newlines or numbered lists
-        val lines = content.lines()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            // Remove common AI formatting like "1. ", "Line 1: ", etc.
-            .map { line ->
-                line.replace(Regex("^\\d+\\.\\s*"), "")
-                    .replace(Regex("^Line\\s+\\d+:\\s*", RegexOption.IGNORE_CASE), "")
-                    .replace(Regex("^-\\s*"), "")
-            }
-        
-        return lines
-    }
-
     fun loadTranslationsFromDatabase(
         lyrics: List<LyricsEntry>,
         lyricsEntity: LyricsEntity?,
@@ -290,7 +271,6 @@ object LyricsTranslationHelper {
                             var translatedLines: List<String>? = null
                             var hasError = false
                             var errorMessage = ""
-                            val contentAccumulator = StringBuilder()
 
                             OpenRouterStreamingService
                                 .streamTranslation(
@@ -304,24 +284,9 @@ object LyricsTranslationHelper {
                                 ).collect { chunk ->
                                     Timber.v("Received streaming chunk: $chunk")
                                     when (chunk) {
-                                        is OpenRouterStreamingService.StreamChunk.Content -> {
-                                            // Accumulate content for progressive parsing
-                                            contentAccumulator.append(chunk.text)
-
-                                            // Try to parse partial content and update UI progressively
-                                            val partialContent = contentAccumulator.toString()
-                                            val partialResult = tryParsePartialTranslation(partialContent, nonEmptyEntries.size)
-                                            if (partialResult.isNotEmpty()) {
-                                                // Update lyrics with partial translations as they become available
-                                                partialResult.forEachIndexed { idx, translation ->
-                                                    if (idx < nonEmptyEntries.size && translation.isNotBlank()) {
-                                                        val originalIndex = nonEmptyEntries[idx].first
-                                                        lyrics[originalIndex].translatedTextFlow.value = translation
-                                                    }
-                                                }
-                                                _status.value = TranslationStatus.Translating
-                                            }
-                                        }
+                                        // Partial lines are not shown: lyrics would re-layout on every chunk.
+                                        // The whole translation is applied at once, like a source translation.
+                                        is OpenRouterStreamingService.StreamChunk.Content -> Unit
 
                                         is OpenRouterStreamingService.StreamChunk.Complete -> {
                                             Timber.d("Streaming complete with ${chunk.translatedLines.size} lines")

@@ -52,6 +52,7 @@ import com.metrolist.music.constants.AccompanistScrollDurationKey
 import com.metrolist.music.constants.AccompanistSungLineOpacityDefault
 import com.metrolist.music.constants.AccompanistSungLineOpacityKey
 import com.metrolist.music.lyrics.LyricsEntry
+import com.metrolist.music.lyrics.LyricsPhonetics
 import com.metrolist.music.utils.dataStore
 import com.mocharealm.accompanist.lyrics.core.model.ISyncedLine
 import com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
@@ -59,6 +60,10 @@ import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable
 import com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine
+import com.mocharealm.accompanist.lyrics.core.utils.PhoneticProvider
+import com.mocharealm.accompanist.lyrics.core.utils.PhoneticRequest
+import com.mocharealm.accompanist.lyrics.core.utils.PhoneticResponse
+import com.mocharealm.accompanist.lyrics.core.utils.withPhonetics
 import com.mocharealm.accompanist.lyrics.ui.composable.list.LyricsLazyListState
 import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeBreathingDotsDefaults
 import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.KaraokeLyricsView
@@ -176,6 +181,7 @@ fun AccompanistLyricsView(
             flowOf(null)
         } else {
             val keptTranslations = arrayOfNulls<String>(lines.size)
+            val phonetics = CachedPhonetics(LyricsPhonetics)
             combine(lines.flatMap { listOf(it.translatedTextFlow, it.romanizedTextFlow) }) { }
                 .debounce(300)
                 .map {
@@ -186,7 +192,7 @@ fun AccompanistLyricsView(
                             anyTranslation = true
                         }
                     }
-                    lines.toSyncedLyrics(respectAgentPositioning, keptTranslations) to anyTranslation
+                    lines.toSyncedLyrics(respectAgentPositioning, keptTranslations).withPhonetics(phonetics) to anyTranslation
                 }
                 .flowOn(Dispatchers.Default)
         }
@@ -285,6 +291,7 @@ internal fun List<LyricsEntry>.toSyncedLyrics(
 ): SyncedLyrics {
     val result = mutableListOf<ISyncedLine>()
     var lastMainIndex = -1
+    val japaneseSong = any { entry -> entry.text.any(::isKana) }
 
     forEachIndexed { index, entry ->
         if (entry.text.isBlank()) return@forEachIndexed
@@ -293,7 +300,10 @@ internal fun List<LyricsEntry>.toSyncedLyrics(
             ?: subList(index + 1, size).firstOrNull { !it.isBackground }?.time?.toInt()
             ?: (start + LAST_LINE_FALLBACK_MS)).coerceAtLeast(start)
         val translation = translations[index]
-        val phonetic = entry.romanizedTextFlow.value?.takeIf { it.isNotBlank() && it != entry.text }
+        val romanized = entry.romanizedTextFlow.value?.takeIf { it.isNotBlank() && it != entry.text }
+        // A romanized CJK or Korean line is captioned later, word by word, by the phonetics engine.
+        val languageTag = romanized?.let { phoneticLanguageTag(entry.text, japaneseSong) }
+        val phonetic = romanized.takeIf { languageTag == null }
         val alignment = if (respectAgentPositioning && entry.agent == "v2") KaraokeAlignment.End else KaraokeAlignment.Unspecified
         val syllables = entry.words?.takeIf { it.isNotEmpty() }?.map { word ->
             val wordStart = (word.startTime * 1000).toInt()
@@ -313,17 +323,37 @@ internal fun List<LyricsEntry>.toSyncedLyrics(
                 start = start,
                 end = end,
                 phonetic = phonetic,
+                languageTag = languageTag,
             )
             result[lastMainIndex] = main.copy(accompanimentLines = main.accompanimentLines.orEmpty() + accompaniment)
         } else if (syllables != null) {
-            result += KaraokeLine.MainKaraokeLine(syllables, translation, alignment, start, end, phonetic)
+            result += KaraokeLine.MainKaraokeLine(syllables, translation, alignment, start, end, phonetic, languageTag = languageTag)
             lastMainIndex = result.lastIndex
         } else {
-            result += SyncedLine(entry.text, translation, start, end, phonetic)
+            result += SyncedLine(entry.text, translation, start, end, phonetic, languageTag)
             if (!entry.isBackground) lastMainIndex = -1
         }
     }
     return SyncedLyrics(result)
+}
+
+private fun isKana(char: Char) = char in '\u3040'..'\u30FF'
+
+private fun isHan(char: Char) = char in '\u3400'..'\u4DBF' || char in '\u4E00'..'\u9FFF' || char in '\uF900'..'\uFAFF'
+
+/** Han characters are read as Japanese when the song uses kana anywhere, as the classic view does. */
+private fun phoneticLanguageTag(text: String, japaneseSong: Boolean): String? = when {
+    text.any(::isKana) || (japaneseSong && text.any(::isHan)) -> LyricsPhonetics.JAPANESE
+    text.any(::isHan) -> LyricsPhonetics.chineseTag()
+    text.any { it in '\uAC00'..'\uD7A3' || it in '\u1100'..'\u11FF' || it in '\u3130'..'\u318F' } -> LyricsPhonetics.KOREAN
+    else -> null
+}
+
+/** Scenes are rebuilt as translations arrive; readings for unchanged lines are reused. */
+private class CachedPhonetics(private val delegate: PhoneticProvider) : PhoneticProvider by delegate {
+    private val responses = HashMap<PhoneticRequest, PhoneticResponse>()
+    override fun resolve(request: PhoneticRequest): PhoneticResponse =
+        responses.getOrPut(request) { delegate.resolve(request) }
 }
 
 private fun List<KaraokeSyllable>.stripParentheses(): List<KaraokeSyllable> = mapIndexed { i, syllable ->

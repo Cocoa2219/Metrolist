@@ -447,6 +447,14 @@ val LyricsScrollKey = booleanPreferencesKey("lyricsScrollKey")
 val HideStatusBarOnFullscreenKey = booleanPreferencesKey("hideStatusBarOnFullscreen")
 val LyricsRomanizeAsMainKey = booleanPreferencesKey("lyricsRomanizeAsMain")
 val LyricsRomanizeCyrillicByLineKey = booleanPreferencesKey("lyricsRomanizeCyrillicByLine")
+val ChineseReadingKey = stringPreferencesKey("chineseReading")
+
+/** Which spoken language Chinese characters are romanized as. */
+enum class ChineseReading(val languageTag: String) {
+    MANDARIN("zh-CN"),
+    MANDARIN_TAIWAN("zh-TW"),
+    CANTONESE("yue-HK"),
+}
 val OpenRouterApiKey = stringPreferencesKey("openRouterApiKey")
 val AiProviderKey = stringPreferencesKey("aiProvider")
 val OpenRouterBaseUrlKey = stringPreferencesKey("openRouterBaseUrl")
