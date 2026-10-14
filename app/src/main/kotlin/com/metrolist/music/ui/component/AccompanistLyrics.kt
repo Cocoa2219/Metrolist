@@ -309,8 +309,10 @@ internal fun List<LyricsEntry>.toSyncedLyrics(
         val translation = translations[index]
         val romanized = entry.romanizedTextFlow.value?.takeIf { it.isNotBlank() && it != entry.text }
         // A romanized CJK or Korean line is captioned later, word by word, by the phonetics engine.
+        // A line timed as one piece keeps its line caption: Accompanist splits it by script for
+        // display, which would leave a word caption under its first part once the line wraps.
         val languageTag = romanized?.let { phoneticLanguageTag(entry.text, japaneseSong) }
-        val phonetic = romanized.takeIf { languageTag == null }
+        val phonetic = romanized.takeIf { languageTag == null || entry.words?.size == 1 }
         val alignment = if (respectAgentPositioning && entry.agent == "v2") KaraokeAlignment.End else KaraokeAlignment.Unspecified
         val syllables = entry.words?.takeIf { it.isNotEmpty() }?.map { word ->
             val wordStart = (word.startTime * 1000).toInt()
