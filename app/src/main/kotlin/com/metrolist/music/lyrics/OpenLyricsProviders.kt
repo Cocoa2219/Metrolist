@@ -201,29 +201,36 @@ object LrcRedLyricsProvider : LyricsProvider {
         checkedTtml(ttml)
     }
 
+    // YouTube Music titles many J-pop songs "Original - Romanized" in every locale.
+    private val TITLE_PARTS = Regex("""\s+[-–—]\s+""")
+
     /**
-     * By title first. The album's track list catches a title Apple lists differently; only the
-     * exact album counts there, since a live album repeats the songs at similar lengths.
+     * By title first, then by each side of an "Original - Romanized" title, since lrc.red only
+     * knows the romanized one. The album's track list catches a title Apple lists differently;
+     * only the exact album counts there, since a live album repeats the songs at similar lengths.
      */
     private suspend fun findIsrc(title: String, artist: String, album: String?, duration: Int): String? {
         /** Why a hit does not fit, or null when it does. */
-        fun JsonObject.mismatch(matchTitle: Boolean): String? {
+        fun JsonObject.mismatch(wanted: String?, requireArtist: Boolean): String? {
             val hitTitle = this["title"].string().orEmpty()
             val hitArtist = this["artist"].string().orEmpty()
             val hitDuration = this["duration"]?.jsonPrimitive?.doubleOrNull
             return when {
-                matchTitle && !sameTitle(title, hitTitle) -> "title '$hitTitle'"
-                !matchTitle && matchKey(album.orEmpty()) != matchKey(this["album"].string().orEmpty()) -> "album '${this["album"].string()}'"
-                !sharesArtist(artist, hitArtist) -> "artist '$hitArtist'"
+                wanted != null && !sameTitle(wanted, hitTitle) -> "title '$hitTitle'"
+                wanted == null && matchKey(album.orEmpty()) != matchKey(this["album"].string().orEmpty()) -> "album '${this["album"].string()}'"
+                requireArtist && !sharesArtist(artist, hitArtist) -> "artist '$hitArtist'"
+                // Without the artist, the length is what tells the song from others of its name.
+                !requireArtist && (duration <= 0 || hitDuration == null) -> "no duration to compare"
                 duration > 0 && hitDuration != null && abs(hitDuration - duration) > DURATION_TOLERANCE_S ->
                     "duration ${hitDuration}s"
                 else -> null
             }
         }
-        fun pick(step: String, query: String, hits: List<JsonObject>, matchTitle: Boolean): String? {
+        suspend fun pick(step: String, query: String, wanted: String?, requireArtist: Boolean = true): String? {
+            val hits = search(query)
             Timber.tag(TAG).d("$step search '$query': ${hits.size} hits")
             for (hit in hits) {
-                val reason = hit.mismatch(matchTitle)
+                val reason = hit.mismatch(wanted, requireArtist)
                 val label = "'${hit["title"].string()}' by '${hit["artist"].string()}' [${hit["isrc"].string()}]"
                 if (reason == null) {
                     Timber.tag(TAG).d("$step match: $label")
@@ -233,14 +240,20 @@ object LrcRedLyricsProvider : LyricsProvider {
             }
             return null
         }
-        val titleQuery = "$title $artist"
-        pick("Title", titleQuery, search(titleQuery), matchTitle = true)?.let { return it }
+        pick("Title", "$title $artist", title)?.let { return it }
+        val parts = title.split(TITLE_PARTS).map(String::trim).filter(String::isNotEmpty)
+        if (parts.size > 1) {
+            for (part in parts) {
+                pick("Title part", "$part $artist", part)?.let { return it }
+                // An artist in a script lrc.red does not index makes the whole query miss.
+                pick("Title part alone", part, part, requireArtist = false)?.let { return it }
+            }
+        }
         if (album.isNullOrBlank()) {
             Timber.tag(TAG).d("No album to fall back on")
             return null
         }
-        val albumQuery = "$artist $album"
-        return pick("Album", albumQuery, search(albumQuery), matchTitle = false)
+        return pick("Album", "$artist $album", wanted = null)
     }
 
     private suspend fun search(query: String): List<JsonObject> =
