@@ -1,4 +1,5 @@
-// Modified by Metrolist: draws the line romanization above the translation, and the translation at TranslationAlpha.
+// Modified by Metrolist: draws the line romanization above the translation, the translation at
+// TranslationAlpha, and rows at the caption tightness.
 package com.mocharealm.accompanist.lyrics.ui.internal.rendering
 
 import androidx.compose.animation.core.animateFloatAsState
@@ -17,6 +18,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
+import com.mocharealm.accompanist.lyrics.ui.internal.effects.LocalCaptionTightness
 import com.mocharealm.accompanist.lyrics.ui.internal.effects.LyricsReveal
 import com.mocharealm.accompanist.lyrics.ui.internal.effects.LyricsRevealSpring
 import com.mocharealm.accompanist.lyrics.ui.internal.diagnostics.traceLyrics
@@ -39,6 +41,7 @@ internal fun PreparedLineText(
 ) {
     val currentTime by rememberUpdatedState(currentTimeProvider)
     val density = LocalDensity.current
+    val tightness = LocalCaptionTightness.current
     val activeColor = resources.color
     val rasterState = resources.rasterState(prepared)
     val raster by rasterState
@@ -133,6 +136,7 @@ internal fun PreparedLineText(
                                             preparedLayers,
                                             glows,
                                             drawPhonetics = false,
+                                            tightness = tightness(),
                                         )
                                     }
                                 }
@@ -168,6 +172,7 @@ internal fun PreparedLineText(
                                                     showDebugRectangles,
                                                     preparedLayers,
                                                     drawOriginal = false,
+                                                    tightness = tightness(),
                                                 )
                                             }
                                         }

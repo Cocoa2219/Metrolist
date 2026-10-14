@@ -1,4 +1,4 @@
-// Modified by Metrolist: adds sungLineAlpha and onSceneShown, reads lines from the scene so a retained scene stays consistent,
+// Modified by Metrolist: adds sungLineAlpha and onSceneShown, slides words with their captions, reads lines from the scene so a retained scene stays consistent,
 // and limits the focus blur to lines near the viewport with a capped radius.
 package com.mocharealm.accompanist.lyrics.ui.composable.lyrics
 
@@ -6,6 +6,7 @@ import com.mocharealm.accompanist.lyrics.ui.internal.layout.lyricsAutoScroll
 import com.mocharealm.accompanist.lyrics.ui.internal.layout.settledHeight
 import com.mocharealm.accompanist.lyrics.ui.internal.rendering.PreparedLineText
 import com.mocharealm.accompanist.lyrics.ui.internal.rendering.LyricsTexturePrefetch
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import com.mocharealm.accompanist.lyrics.ui.internal.effects.lyricsEdgeFade
 import com.mocharealm.accompanist.lyrics.ui.internal.effects.LyricsCaptionTransitions
+import com.mocharealm.accompanist.lyrics.ui.internal.effects.LocalCaptionTightness
 import com.mocharealm.accompanist.lyrics.ui.internal.effects.LocalLyricsCaptionTransitions
 import kotlinx.coroutines.flow.first
 import androidx.compose.ui.graphics.*
@@ -44,6 +46,8 @@ import com.mocharealm.accompanist.lyrics.ui.internal.scene.LyricsLayoutRequest
 import com.mocharealm.accompanist.lyrics.ui.internal.text.isRtl
 
 private const val MaxFocusBlurRadius = 12f
+private const val CaptionSlideMillis = 600
+
 
 /**
  * Prepares a complete scene when content, profiles, typography or available width changes. Playback
@@ -236,7 +240,24 @@ fun KaraokeLyricsView(
                 animationSpec = tween(if (listState.isManualScrolling) 100 else 300),
                 label = "manualScrollFocusBlur",
             )
-        CompositionLocalProvider(LocalLyricsCaptionTransitions provides captionTransitions) {
+        // Words slide apart and their captions fade in once a scene with word captions is shown,
+        // and back together as the captions hide, before the caller swaps in a caption-free scene.
+        val hasWordCaptions = remember(scene.lyrics) {
+            scene.lyrics.lines.any { line ->
+                line?.rows?.any { row -> row.runs.any { run -> run.groups.any { it.phoneticIndices.isNotEmpty() } } } == true
+            }
+        }
+        val captionTightness = remember { Animatable(if (showPhonetic) 0f else 1f) }
+        LaunchedEffect(showPhonetic, hasWordCaptions) {
+            captionTightness.animateTo(
+                if (showPhonetic && hasWordCaptions) 0f else 1f,
+                tween(CaptionSlideMillis, easing = FastOutSlowInEasing),
+            )
+        }
+        CompositionLocalProvider(
+            LocalLyricsCaptionTransitions provides captionTransitions,
+            LocalCaptionTightness provides { captionTightness.value },
+        ) {
             LyricsLazyColumn(
                 items = listItems,
                 state = listState,
