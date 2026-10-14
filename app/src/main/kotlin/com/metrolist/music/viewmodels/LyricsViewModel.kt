@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.metrolist.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.metrolist.music.lyrics.LyricsEntry
 import com.metrolist.music.lyrics.LyricsUtils
+import com.metrolist.music.lyrics.isTtml
 import com.metrolist.music.ui.component.LyricsListItem
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -46,7 +47,7 @@ class LyricsViewModel @Inject constructor() : ViewModel() {
                 if (lyrics == null || lyrics == LYRICS_NOT_FOUND) {
                     emptyList()
                 } else {
-                    val isLrc = timestampRegex.containsMatchIn(lyrics)
+                    val isLrc = isTtml(lyrics) || timestampRegex.containsMatchIn(lyrics)
                     val parsedLines = if (isLrc) LyricsUtils.parseLyrics(lyrics) else emptyList()
                     
                     if (parsedLines.isNotEmpty()) {
@@ -69,13 +70,16 @@ class LyricsViewModel @Inject constructor() : ViewModel() {
             // Romanize in the background after the UI has been updated
             if (lyrics != null && lyrics != LYRICS_NOT_FOUND && enabledLanguages.isNotEmpty()) {
                 launch(Dispatchers.Default) {
+                    // TTML markup and translations would skew language detection.
+                    val detectionText = if (isTtml(lyrics)) processedLines.joinToString("\n") { it.text } else lyrics
                     processedLines.forEach { entry ->
                         if (entry == LyricsEntry.HEAD_LYRICS_ENTRY) return@forEach
                         entry.romanizedTextFlow.value = LyricsUtils.romanize(
-                            text = lyrics,
+                            text = detectionText,
                             line = entry.text,
                             enabledLanguages = enabledLanguages,
-                            romanizeCyrillicByLine = romanizeCyrillicByLine
+                            romanizeCyrillicByLine = romanizeCyrillicByLine,
+                            preferred = entry.sourceRomanization,
                         )
                     }
                 }

@@ -6,7 +6,6 @@
 package com.metrolist.music.lyrics
 
 import android.content.Context
-import com.metrolist.music.betterlyrics.TTMLParser
 import com.metrolist.music.constants.EnableLyricsPlus
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
@@ -270,14 +269,8 @@ object LyricsPlusProvider : LyricsProvider {
             }
         } ?: return null
 
-        val parsedLines = runCatching { TTMLParser.parseTTML(ttml) }
-            .onFailure { Timber.tag("LyricsPlus").w(it, "Failed parsing binimum TTML") }
-            .getOrNull()
-            ?.takeIf { it.isNotEmpty() } ?: return null
-        val lrc = runCatching { TTMLParser.toLRC(parsedLines).trim() }
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
-            ?: return null
+        // Kept as TTML, so its translations and romanization survive.
+        val lrc = ttml.trim().takeIf { TtmlLyrics.parse(it).isNotEmpty() } ?: return null
 
         return BinimumLyricsFetchResult(
             lrc = lrc,

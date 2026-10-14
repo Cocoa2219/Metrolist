@@ -65,8 +65,11 @@ import com.metrolist.music.LocalDatabase
 import com.metrolist.music.R
 import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.db.entities.SongEntity
+import com.metrolist.music.betterlyrics.TTMLParser
 import com.metrolist.music.lyrics.LyricsTranslationHelper
 import com.metrolist.music.lyrics.LyricsUtils
+import com.metrolist.music.lyrics.isTtml
+import com.metrolist.music.lyrics.lyricsTextLooksSynced
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.ListDialog
@@ -129,7 +132,10 @@ fun LyricsMenu(
             onDismiss = { showEditDialog = false },
             icon = { Icon(painter = painterResource(R.drawable.edit), contentDescription = null) },
             title = { Text(text = mediaMetadataProvider().title) },
-            initialTextFieldValue = TextFieldValue(lyricsProvider()?.lyrics.orEmpty()),
+            // TTML is edited as LRC; saving stores the LRC, without the source's translations.
+            initialTextFieldValue = TextFieldValue(lyricsProvider()?.lyrics.orEmpty().let { lyrics ->
+                if (isTtml(lyrics)) TTMLParser.toLRC(TTMLParser.parseTTML(lyrics)) else lyrics
+            }),
             singleLine = false,
             onDone = {
                 database.query {
@@ -294,7 +300,10 @@ fun LyricsMenu(
                         modifier = Modifier.weight(1f),
                     ) {
                         Text(
-                            text = result.lyrics,
+                            text = remember(result.lyrics) {
+                                if (isTtml(result.lyrics)) LyricsUtils.parseLyrics(result.lyrics).joinToString("\n") { it.text }
+                                else result.lyrics
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             maxLines = if (index == expandedItemIndex) Int.MAX_VALUE else 2,
                             overflow = TextOverflow.Ellipsis,
@@ -310,7 +319,7 @@ fun LyricsMenu(
                                 color = MaterialTheme.colorScheme.secondary,
                                 maxLines = 1,
                             )
-                            if (result.lyrics.startsWith("[")) {
+                            if (lyricsTextLooksSynced(result.lyrics)) {
                                 Icon(
                                     painter = painterResource(R.drawable.sync),
                                     contentDescription = null,
@@ -451,7 +460,7 @@ fun LyricsMenu(
                             onClick = {
                                 lyricsProvider()?.lyrics?.let { lyrics ->
                                     val plainLyrics =
-                                        if (lyrics.startsWith("[")) {
+                                        if (lyricsTextLooksSynced(lyrics)) {
                                             LyricsUtils.parseLyrics(lyrics)
                                                 .joinToString("\n") { it.text }
                                         } else {

@@ -28,6 +28,7 @@ private fun textLines(lyrics: String): List<String> =
  * a genuine sync.
  */
 fun normalizeLyrics(raw: String): String? {
+    if (isTtml(raw)) return raw.trim().takeIf { ttml -> TtmlLyrics.parse(ttml).any { it.text.isNotBlank() } }
     val lyrics = LyricsUtils.filterLyricsCreditLines(raw).trim()
     val text = textLines(lyrics)
     if (text.isEmpty() || NO_WORDS_NOTE.matches(text.joinToString(" "))) return null
@@ -43,10 +44,11 @@ fun normalizeLyrics(raw: String): String? {
 /** Measures already normalized lyrics. */
 fun lyricsQuality(lyrics: String): LyricsQuality {
     if (lyrics.isBlank()) return LyricsQuality.NONE
-    if (!LINE_TIMESTAMP.containsMatchIn(lyrics)) return LyricsQuality.PLAIN
+    if (!isTtml(lyrics) && !LINE_TIMESTAMP.containsMatchIn(lyrics)) return LyricsQuality.PLAIN
     val entries = LyricsUtils.parseLyrics(lyrics)
     return when {
-        entries.any { !it.words.isNullOrEmpty() } -> LyricsQuality.WORD_SYNCED
+        // A line timed as one piece is line-synced however its format writes it (line-timed TTML).
+        entries.any { (it.words?.size ?: 0) > 1 } -> LyricsQuality.WORD_SYNCED
         entries.isNotEmpty() -> LyricsQuality.LINE_SYNCED
         else -> LyricsQuality.NONE
     }

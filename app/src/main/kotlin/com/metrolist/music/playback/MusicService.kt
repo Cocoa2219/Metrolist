@@ -409,6 +409,7 @@ class MusicService :
     private var isCrossfading = false
     private var crossfadeJob: Job? = null
     private var taskCleared = false
+    private var lastSavedPlayerState: PersistPlayerState? = null
     private var mediaSession: MediaLibrarySession? = null
     private var controllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
 
@@ -974,6 +975,7 @@ class MusicService :
                 val playWhenReady = player.playWhenReady
                 val repeatMode = player.repeatMode
                 val shuffleModeEnabled = player.shuffleModeEnabled
+                val shuffleOrder = player.shuffleOrder
                 val playbackParameters = player.playbackParameters
                 val volume = player.volume
                 val mediaItems = List(player.mediaItemCount) { index ->
@@ -999,6 +1001,7 @@ class MusicService :
                 newPlayer.setMediaItems(mediaItems, currentIndex, currentPosition)
                 newPlayer.repeatMode = repeatMode
                 newPlayer.shuffleModeEnabled = shuffleModeEnabled
+                newPlayer.setShuffleOrder(shuffleOrder)
                 newPlayer.playbackParameters = playbackParameters
                 newPlayer.volume = volume
                 newPlayer.playWhenReady = playWhenReady
@@ -1498,6 +1501,7 @@ class MusicService :
         runCatching { filesDir.resolve(PERSISTENT_AUTOMIX_FILE).delete() }
         runCatching { filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE).delete() }
         runCatching { filesDir.resolve(PERSISTENT_QUEUE_SECTIONS_FILE).delete() }
+        lastSavedPlayerState = null
     }
 
     private fun waitOnNetworkError() {
@@ -3790,7 +3794,11 @@ class MusicService :
             if (!shouldBypassCache) {
                 val usePlayerCache = dataStore.get(EnableSongCacheKey, true)
 
-                val contentLength = storedFormat?.contentLength
+                val contentLength =
+                    storedFormat?.contentLength
+                        ?: ContentMetadata
+                            .getContentLength(downloadCache.getContentMetadata(mediaId))
+                            .takeIf { it > 0L }
                 val requiredLength =
                     when {
                         dataSpec.length >= 0 -> dataSpec.length
@@ -4147,12 +4155,15 @@ class MusicService :
             currentMediaItemIndex = player.currentMediaItemIndex,
             playbackState = player.playbackState,
         )
+        // While paused nothing changes, so skip the periodic rewrite.
+        if (playerState == lastSavedPlayerState) return
         runCatching {
             filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE).outputStream().use { fos ->
                 ObjectOutputStream(fos).use { oos ->
                     oos.writeObject(playerState)
                 }
             }
+            lastSavedPlayerState = playerState
             Timber.tag(TAG).d("Player state saved successfully")
         }.onFailure {
             Timber.tag(TAG).e(it, "Failed to save player state")
@@ -4364,7 +4375,12 @@ class MusicService :
         runCatching { pauseAllPlayersAndStopSelf() }.onFailure { stopSelf() }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
+        // External controllers (Android Auto, Bluetooth, Wear) only connect when the user is using
+        // them, and they keep this instance alive after a task clear, so they must lift the guard.
+        if (controllerInfo.packageName != packageName) taskCleared = false
+        return mediaSession
+    }
 
     override fun onUpdateNotification(
         session: MediaSession,
@@ -4390,8 +4406,12 @@ class MusicService :
         startId: Int,
     ): Int {
         if (taskCleared) {
-            stopSelf()
-            return START_NOT_STICKY
+            // A media button press (headset, car) is the user resuming; anything else is a stale restart.
+            if (intent?.action != Intent.ACTION_MEDIA_BUTTON) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            taskCleared = false
         }
         // On Android O+, every startForegroundService() call requires
         // Service.startForeground() to be called within a short timeout.
@@ -4866,6 +4886,7 @@ class MusicService :
 
         secPlayer.repeatMode = repeatMode
         secPlayer.shuffleModeEnabled = shuffleModeEnabled
+        secPlayer.setShuffleOrder(player.shuffleOrder)
         secPlayer.playbackParameters = player.playbackParameters
 
         try {

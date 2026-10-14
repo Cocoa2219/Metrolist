@@ -73,6 +73,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.stringResource
 import android.text.Layout
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -112,7 +113,6 @@ import com.metrolist.music.ui.component.shimmer.TextPlaceholder
 import com.metrolist.music.ui.screens.settings.LyricsPosition
 import com.metrolist.music.ui.screens.settings.defaultList
 import com.metrolist.music.ui.utils.fadingEdge
-import com.metrolist.music.utils.ComposeToImage
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.LyricsViewModel
@@ -309,32 +309,13 @@ fun ExperimentalLyrics(
         )
     }
     var isSeeking by remember { mutableStateOf(false) }
-    var showProgressDialog by remember { mutableStateOf(false) }
-    var showShareDialog by remember { mutableStateOf(false) }
-    var showColorPickerDialog by remember { mutableStateOf(false) }
-    var shareDialogData by remember { mutableStateOf<Triple<String, String, String>?>(null) }
-    var isSelectionModeActive by rememberSaveable { mutableStateOf(false) }
-    val selectedIndices = remember { mutableStateListOf<Int>() }
-    var showMaxSelectionToast by remember { mutableStateOf(false) }
+    // Index into [lines] of the line a share starts from.
+    var shareFromIndex by remember { mutableStateOf<Int?>(null) }
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(true) }
     val accompanistListState = remember(lyrics) { LyricsLazyListState() }
     val isLyricsProviderShown = lyricsEntity != null &&
         lyricsEntity.provider != "Unknown" &&
-        lyricsEntity.provider != "Manual" &&
-        !isSelectionModeActive
-
-    BackHandler(enabled = isSelectionModeActive) {
-        isSelectionModeActive = false
-        selectedIndices.clear()
-    }
-
-    val maxSelectionLimit = 5
-    LaunchedEffect(showMaxSelectionToast) {
-        if (showMaxSelectionToast) {
-            Toast.makeText(context, context.getString(R.string.max_selection_limit, maxSelectionLimit), Toast.LENGTH_SHORT).show()
-            showMaxSelectionToast = false
-        }
-    }
+        lyricsEntity.provider != "Manual"
 
     LaunchedEffect(lyrics, lines, accompanistActive) {
         if (lyrics.isNullOrEmpty() || lines.isEmpty() || accompanistActive) {
@@ -534,9 +515,8 @@ fun ExperimentalLyrics(
                         playerConnection.seekTo((startMs - (currentSong?.song?.lyricsOffset ?: 0)).coerceAtLeast(0))
                     }
                 },
-                onLineLongPressed = { text ->
-                    shareDialogData = Triple(text, mediaMetadata?.title ?: "", mediaMetadata?.artists?.joinToString { it.name } ?: "")
-                    showShareDialog = true
+                onLineLongPressed = { startMs ->
+                    shareFromIndex = lines.indexOfFirst { it.time == startMs && it.text.isNotBlank() }.takeIf { it >= 0 }
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -645,8 +625,7 @@ fun ExperimentalLyrics(
                                     LyricsLine(
                                         index = index, item = item, isSynced = isSynced,
                                         isActiveLine = isActiveLine,
-                                        bgVisible = bgVisible, isSelected = selectedIndices.contains(index),
-                                        isSelectionModeActive = isSelectionModeActive, currentPositionState = currentPositionState,
+                                        bgVisible = bgVisible, currentPositionState = currentPositionState,
                                         lyricsOffset = (currentSong?.song?.lyricsOffset ?: 0).toLong(),
                                         playerConnection = playerConnection, lyricsTextSize = 36f, lyricsLineSpacing = 1.3f,
                                         expressiveAccent = expressiveAccent, lyricsTextPosition = lyricsTextPosition,
@@ -655,25 +634,14 @@ fun ExperimentalLyrics(
                                         enabledLanguages = enabledLanguages, romanizeLyrics = currentSong?.romanizeLyrics == true,
                                         onSizeChanged = { itemHeights[listIndex] = it },
                                         onClick = {
-                                            if (isSelectionModeActive) {
-                                                if (selectedIndices.contains(index)) {
-                                                    selectedIndices.remove(index)
-                                                    if (selectedIndices.isEmpty()) isSelectionModeActive = false
-                                                } else if (selectedIndices.size < maxSelectionLimit) selectedIndices.add(index)
-                                                else showMaxSelectionToast = true
-                                            } else if (changeLyrics && !isGuest) {
+                                            if (changeLyrics && !isGuest) {
                                                 if (item.time < playerConnection.player.duration + 30000L) {
                                                     playerConnection.seekTo((item.time - (currentSong?.song?.lyricsOffset ?: 0)).coerceAtLeast(0))
                                                 }
                                                 isAutoScrollEnabled = true
                                             }
                                         },
-                                        onLongClick = {
-                                            if (!isSelectionModeActive) {
-                                                isSelectionModeActive = true
-                                                selectedIndices.add(index)
-                                            }
-                                        }
+                                        onLongClick = { shareFromIndex = index }
                                     )
                                 }
                             }
@@ -687,81 +655,24 @@ fun ExperimentalLyrics(
             modifier = Modifier.align(Alignment.BottomCenter),
             isAutoScrollEnabled = if (useAccompanist) !accompanistListState.isManualScrolling else isAutoScrollEnabled,
             isSynced = isSynced,
-            isSelectionModeActive = isSelectionModeActive, anySelected = selectedIndices.isNotEmpty(),
             onSyncClick = if (useAccompanist) ({ accompanistListState.resumeAutoScroll() }) else latestResyncLyrics,
-            onCancelSelection = { isSelectionModeActive = false; selectedIndices.clear() },
-            onShareSelection = {
-                val text = selectedIndices.sorted().mapNotNull { lines.getOrNull(it)?.text }.joinToString("\n")
-                if (text.isNotBlank()) {
-                    shareDialogData = Triple(text, mediaMetadata?.title ?: "", mediaMetadata?.artists?.joinToString { it.name } ?: "")
-                    showShareDialog = true
-                }
-                isSelectionModeActive = false; selectedIndices.clear()
-            }
         )
     }
 
-    if (showProgressDialog) {
-        BasicAlertDialog(onDismissRequest = {}) {
-            Card(shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                Box(Modifier.padding(32.dp)) { Text(stringResource(R.string.generating_image) + "\n" + stringResource(R.string.please_wait)) }
-            }
-        }
-    }
-
-    if (showShareDialog && shareDialogData != null) {
-        val (txt, title, arts) = shareDialogData!!
-        LyricsShareDialog(
-            txt = txt, title = title, arts = arts, songId = mediaMetadata?.id ?: "",
-            onDismiss = { showShareDialog = false },
-            onShareAsImage = {
-                showShareDialog = false
-                showColorPickerDialog = true
-            }
-        )
-    }
-
-    if (showColorPickerDialog && shareDialogData != null) {
-        val (txt, title, arts) = shareDialogData!!
-        LyricsColorPickerDialog(
-            txt = txt, title = title, arts = arts, thumbnailUrl = mediaMetadata?.thumbnailUrl,
-            lyricsTextPosition = lyricsTextPosition,
-            onDismiss = { showColorPickerDialog = false },
-            onShare = { bgColor, textColor, secTextColor, style ->
-                showColorPickerDialog = false
-                showProgressDialog = true
-                scope.launch {
-                    try {
-                        val image = ComposeToImage.createLyricsImage(
-                            context, mediaMetadata?.thumbnailUrl, title, arts, txt,
-                            (configuration.screenWidthDp * density.density).toInt(),
-                            (configuration.screenHeightDp * density.density).toInt(),
-                            bgColor.toArgb(),
-                            when(style) {
-                                LyricsBackgroundStyle.SOLID -> LyricsBackgroundStyle.SOLID
-                                LyricsBackgroundStyle.BLUR -> LyricsBackgroundStyle.BLUR
-                                LyricsBackgroundStyle.GRADIENT -> LyricsBackgroundStyle.GRADIENT
-                            },
-                            textColor.toArgb(), secTextColor.toArgb(),
-                            when (lyricsTextPosition) {
-                                LyricsPosition.LEFT -> Layout.Alignment.ALIGN_NORMAL
-                                LyricsPosition.CENTER -> Layout.Alignment.ALIGN_CENTER
-                                else -> Layout.Alignment.ALIGN_OPPOSITE
-                            }
-                        )
-                        val uri = ComposeToImage.saveBitmapAsFile(context, image, "lyrics_${System.currentTimeMillis()}")
-                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-                            type = "image/png"
-                            putExtra(Intent.EXTRA_STREAM, uri)
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }, context.getString(R.string.share_lyrics)))
-                    } catch (e: Exception) {
-                        Toast.makeText(context, context.getString(R.string.failed_to_create_image, e.message), Toast.LENGTH_SHORT).show()
-                    } finally {
-                        showProgressDialog = false
-                    }
-                }
-            }
+    val shareFrom = shareFromIndex
+    val metadata = mediaMetadata
+    if (shareFrom != null && metadata != null) {
+        val shareable = remember(lines) { lines.withIndex().filter { it.value.text.isNotBlank() } }
+        LyricsShareSheet(
+            lines = remember(shareable) { shareable.map { it.value.toShareLine() } },
+            initialIndex = shareable.indexOfFirst { it.index == shareFrom }.coerceAtLeast(0),
+            mediaMetadata = metadata,
+            textAlign = when (lyricsTextPosition) {
+                LyricsPosition.LEFT -> TextAlign.Left
+                LyricsPosition.CENTER -> TextAlign.Center
+                else -> TextAlign.Right
+            },
+            onDismiss = { shareFromIndex = null },
         )
     }
 }

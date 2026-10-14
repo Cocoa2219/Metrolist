@@ -1,6 +1,7 @@
 package com.metrolist.music.betterlyrics
 
 import com.metrolist.music.betterlyrics.models.TTMLResponse
+import com.metrolist.music.lyrics.TtmlLyrics
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -86,11 +87,10 @@ object BetterLyrics {
             fetchTTML(artist, title, duration, album)
                 ?: throw IllegalStateException("Lyrics unavailable")
 
-        val parsedLines = TTMLParser.parseTTML(ttml)
-        if (parsedLines.isEmpty()) {
+        // Kept as TTML, so its translations and romanization survive.
+        if (TtmlLyrics.parse(ttml).isEmpty()) {
             throw IllegalStateException("Failed to parse lyrics")
         }
-        
-        TTMLParser.toLRC(parsedLines)
+        ttml
     }
 }

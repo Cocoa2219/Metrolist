@@ -34,7 +34,7 @@ desugaring = "2.1.5"
 junit = "4.13.2"
 timber = "5.0.1"
 materialKolor = "5.0.1"
-innertubex = "v0.7.0"
+innertubex = "v0.8.4"
 protobuf = "4.36.2"
 
 [libraries]

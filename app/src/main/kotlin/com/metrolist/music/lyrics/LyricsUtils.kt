@@ -370,6 +370,7 @@ object LyricsUtils {
 
     fun parseLyrics(lyrics: String): List<LyricsEntry> {
         if (lyrics.isBlank()) return emptyList()
+        if (isTtml(lyrics)) return TtmlLyrics.parse(lyrics)
 
         // Fast unescape
         val unescapedLyrics = if (lyrics.contains('\\') || lyrics.startsWith("\"")) {
@@ -1263,25 +1264,27 @@ object LyricsUtils {
         sb.toString()
     }
 
+    /** [preferred] is the source's own romanization, used whenever the line's language is enabled. */
     suspend fun romanize(
         text: String,
         line: String,
         enabledLanguages: List<String>,
-        romanizeCyrillicByLine: Boolean
+        romanizeCyrillicByLine: Boolean,
+        preferred: String? = null,
     ): String? {
         val detectionText = if (romanizeCyrillicByLine) line else text
         return when {
-            "Japanese" in enabledLanguages && isJapanese(detectionText) && !isChinese(detectionText) -> romanizeJapanese(line)
-            "Korean" in enabledLanguages && isKorean(detectionText) -> romanizeKorean(line)
-            "Chinese" in enabledLanguages && isChinese(detectionText) -> romanizeChinese(line)
-            "Hindi" in enabledLanguages && isHindi(detectionText) -> romanizeHindi(line)
-            "Ukrainian" in enabledLanguages && isUkrainian(detectionText) -> romanizeCyrillic(line, "Ukrainian")
-            "Russian" in enabledLanguages && isRussian(detectionText) -> romanizeCyrillic(line, "Russian")
-            "Serbian" in enabledLanguages && isSerbian(detectionText) -> romanizeCyrillic(line, "Serbian")
-            "Bulgarian" in enabledLanguages && isBulgarian(detectionText) -> romanizeCyrillic(line, "Bulgarian")
-            "Belarusian" in enabledLanguages && isBelarusian(detectionText) -> romanizeCyrillic(line, "Belarusian")
-            "Kyrgyz" in enabledLanguages && isKyrgyz(detectionText) -> romanizeCyrillic(line, "Kyrgyz")
-            "Macedonian" in enabledLanguages && isMacedonian(detectionText) -> romanizeCyrillic(line, "Macedonian")
+            "Japanese" in enabledLanguages && isJapanese(detectionText) && !isChinese(detectionText) -> preferred ?: romanizeJapanese(line)
+            "Korean" in enabledLanguages && isKorean(detectionText) -> preferred ?: romanizeKorean(line)
+            "Chinese" in enabledLanguages && isChinese(detectionText) -> preferred ?: romanizeChinese(line)
+            "Hindi" in enabledLanguages && isHindi(detectionText) -> preferred ?: romanizeHindi(line)
+            "Ukrainian" in enabledLanguages && isUkrainian(detectionText) -> preferred ?: romanizeCyrillic(line, "Ukrainian")
+            "Russian" in enabledLanguages && isRussian(detectionText) -> preferred ?: romanizeCyrillic(line, "Russian")
+            "Serbian" in enabledLanguages && isSerbian(detectionText) -> preferred ?: romanizeCyrillic(line, "Serbian")
+            "Bulgarian" in enabledLanguages && isBulgarian(detectionText) -> preferred ?: romanizeCyrillic(line, "Bulgarian")
+            "Belarusian" in enabledLanguages && isBelarusian(detectionText) -> preferred ?: romanizeCyrillic(line, "Belarusian")
+            "Kyrgyz" in enabledLanguages && isKyrgyz(detectionText) -> preferred ?: romanizeCyrillic(line, "Kyrgyz")
+            "Macedonian" in enabledLanguages && isMacedonian(detectionText) -> preferred ?: romanizeCyrillic(line, "Macedonian")
             else -> null
         }
     }

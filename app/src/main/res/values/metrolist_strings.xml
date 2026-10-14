@@ -1038,4 +1038,7 @@
     <string name="chinese_reading_mandarin">Mandarin</string>
     <string name="chinese_reading_mandarin_taiwan">Mandarin (Taiwan)</string>
     <string name="chinese_reading_cantonese">Cantonese</string>
+    <string name="share_lyrics_translation">Translation</string>
+    <string name="save_to_gallery">Save to gallery</string>
+    <string name="saved_to_gallery">Saved to gallery</string>
 </resources>
