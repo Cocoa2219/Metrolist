@@ -1,8 +1,9 @@
-// Modified by Metrolist: keeps the previous scene on screen while a new one prepares.
+// Modified by Metrolist: keeps the previous scene on screen while a new one prepares and rasters.
 package com.mocharealm.accompanist.lyrics.ui.internal.scene
 
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import com.mocharealm.accompanist.lyrics.ui.preparation.PreparedLine
 import com.mocharealm.accompanist.lyrics.ui.preparation.PreparedLyrics
 import com.mocharealm.accompanist.lyrics.ui.internal.rendering.LyricsRenderResources
 import com.mocharealm.accompanist.lyrics.ui.internal.scene.LyricsLayoutRequest
@@ -52,6 +53,17 @@ internal fun rememberLyricsScene(
             LyricsRenderResources(prepared, color, request.density, request.direction)
         }
         timeline.update(position())
+        // Rows draw nothing until rastered, so a swapped-in scene (a caption toggle, new
+        // translations) would blank the view; the lines around the focus are rastered first.
+        suspend fun raster(line: PreparedLine) {
+            line.before.forEach { raster(it) }
+            resources.prepareRaster(line)
+            line.after.forEach { raster(it) }
+        }
+        val first = timeline.focus.value.firstIndex
+        for (index in maxOf(0, first - 2)..minOf(prepared.lines.lastIndex, first + 8)) {
+            prepared.lines[index]?.let { raster(it) }
+        }
         sceneState.value = LyricsScene(session.source, prepared, timeline, resources, items)
     }
     val scene = sceneState.value ?: return published[0]
