@@ -1,5 +1,6 @@
-// Modified by Metrolist: keeps a space between adjacent word captions, and starts captions of
-// end-aligned words after their leading space.
+// Modified by Metrolist: keeps a space between adjacent word captions, starts captions of
+// end-aligned words after their leading space, and moves a caption that would be split across
+// wrapped rows to a line caption.
 package com.mocharealm.accompanist.lyrics.ui.internal.preparation
 
 import com.mocharealm.accompanist.lyrics.ui.internal.text.*
@@ -18,6 +19,7 @@ import com.mocharealm.accompanist.lyrics.core.model.SyncedLyrics
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeAlignment
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeLine
 import com.mocharealm.accompanist.lyrics.core.model.karaoke.KaraokeSyllable
+import com.mocharealm.accompanist.lyrics.core.model.karaoke.copy
 import com.mocharealm.accompanist.lyrics.core.model.synced.SyncedLine
 import com.mocharealm.accompanist.lyrics.ui.profile.LyricsProfile
 import com.mocharealm.accompanist.lyrics.ui.preparation.MeasuredLyricsLine
@@ -200,18 +202,27 @@ private fun prepareLine(
             ),
             line.syllables,
         )
+    var captionSplit = false
     val runs =
         resolveProfiles(line.syllables, profiles, leadingWhitespace = rightAligned).map { run ->
             PreparedProfileRun(
                 run.profile,
                 buildList {
                     for (source in run.groups) {
-                        for (fragment in
+                        val fragments =
                             run.profile.wrap(
                                 run.profile.prepare(measuredLine, source, measurer, style),
                                 measurer,
                                 layoutWidth,
-                            )) {
+                            )
+                        // A caption joined onto a group's first unit cannot follow its text onto
+                        // later rows.
+                        if (
+                            fragments.size > 1 &&
+                                fragments.first().any { !it.phonetic.isNullOrBlank() } &&
+                                fragments.drop(1).all { row -> row.all { it.phonetic.isNullOrBlank() } }
+                        ) captionSplit = true
+                        for (fragment in fragments) {
                             val units =
                                 fragment.map { text ->
                                     PreparedTextUnit(
@@ -243,6 +254,26 @@ private fun prepareLine(
                 },
             )
         }
+    if (captionSplit && showPhonetic && line.phonetic.isNullOrBlank()) {
+        // Such a line shows its pronunciation as one caption below all of its rows, which wraps.
+        val caption = buildString {
+            for (syllable in line.syllables) {
+                val text = syllable.phonetic?.takeIf { it.isNotBlank() } ?: continue
+                if (isNotEmpty()) append(syllable.phoneticSeparatorBefore.ifEmpty { " " })
+                append(text)
+            }
+        }
+        val captioned =
+            line.copy(
+                syllables = line.syllables.map { it.copy(phonetic = null, phoneticSeparatorBefore = "") },
+                phonetic = caption,
+            )
+        return prepareLine(
+            captioned, profiles, measurer, normalStyle, accompanimentStyle, phoneticStyle,
+            translationStyle, width, density, showPhonetic, animate, cache, sweepWidths,
+            layoutWidth, fontScale,
+        ).also { cache[line] = it }
+    }
     val phoneticSpaceWidth by lazy(LazyThreadSafetyMode.NONE) {
         measurer.measure(" ", animatedPhoneticStyle, softWrap = false).size.width.toFloat()
     }
