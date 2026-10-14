@@ -113,16 +113,17 @@ object LyricsTranslationHelper {
         targetLanguage: String,
         mode: String
     ) {
+        // Without a stored translation, lines show the translation their source came with, if any.
         if (lyricsEntity == null || lyricsEntity.translatedLyrics.isNullOrBlank()) {
             _hasActiveTranslations.value = false
-            lyrics.forEach { it.translatedTextFlow.value = null }
+            lyrics.forEach { it.translatedTextFlow.value = it.sourceTranslation }
             return
         }
         
         // Only load if language and mode match
         if (lyricsEntity.translationLanguage != targetLanguage || lyricsEntity.translationMode != mode) {
             _hasActiveTranslations.value = false
-            lyrics.forEach { it.translatedTextFlow.value = null }
+            lyrics.forEach { it.translatedTextFlow.value = it.sourceTranslation }
             return
         }
         

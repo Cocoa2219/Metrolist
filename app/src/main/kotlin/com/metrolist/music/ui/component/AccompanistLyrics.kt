@@ -202,7 +202,7 @@ fun AccompanistLyricsView(
                             anyTranslation = true
                         }
                     }
-                    val lyrics = lines.toSyncedLyrics(respectAgentPositioning, keptTranslations)
+                    val lyrics = lines.toSyncedLyrics(respectAgentPositioning, keptTranslations, captioned)
                     (if (captioned) lyrics.withPhonetics(phonetics) else lyrics) to anyTranslation
                 }
                 .flowOn(Dispatchers.Default)
@@ -295,6 +295,7 @@ private fun ISyncedLine.text(): String? = when (this) {
 internal fun List<LyricsEntry>.toSyncedLyrics(
     respectAgentPositioning: Boolean,
     translations: Array<String?>,
+    wordCaptions: Boolean = true,
 ): SyncedLyrics {
     val result = mutableListOf<ISyncedLine>()
     var lastMainIndex = -1
@@ -314,12 +315,15 @@ internal fun List<LyricsEntry>.toSyncedLyrics(
         val languageTag = romanized?.let { phoneticLanguageTag(entry.text, japaneseSong) }
         val phonetic = romanized.takeIf { languageTag == null || entry.words?.size == 1 }
         val alignment = if (respectAgentPositioning && entry.agent == "v2") KaraokeAlignment.End else KaraokeAlignment.Unspecified
+        // The source's own word romanization (TTML), under the same conditions as generated ones.
+        val sourceWordCaptions = wordCaptions && romanized != null && (entry.words?.size ?: 0) > 1
         val syllables = entry.words?.takeIf { it.isNotEmpty() }?.map { word ->
             val wordStart = (word.startTime * 1000).toInt()
             KaraokeSyllable(
                 content = if (word.hasTrailingSpace) "${word.text} " else word.text,
                 start = wordStart,
                 end = (word.endTime * 1000).toInt().coerceAtLeast(wordStart),
+                phonetic = word.phonetic.takeIf { sourceWordCaptions },
             )
         }
 

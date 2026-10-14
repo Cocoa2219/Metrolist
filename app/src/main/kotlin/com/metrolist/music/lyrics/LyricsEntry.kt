@@ -11,7 +11,9 @@ data class WordTimestamp(
     val text: String,
     val startTime: Double,
     val endTime: Double,
-    val hasTrailingSpace: Boolean = true
+    val hasTrailingSpace: Boolean = true,
+    /** The word's romanization as the lyrics source supplied it. */
+    val phonetic: String? = null,
 )
 
 data class LyricsEntry(
@@ -21,7 +23,10 @@ data class LyricsEntry(
     val romanizedTextFlow: MutableStateFlow<String?> = MutableStateFlow(null),
     val translatedTextFlow: MutableStateFlow<String?> = MutableStateFlow(null),
     val agent: String? = null,
-    val isBackground: Boolean = false
+    val isBackground: Boolean = false,
+    /** Translation and romanization as the lyrics source supplied them (TTML), kept across resets. */
+    val sourceTranslation: String? = null,
+    val sourceRomanization: String? = null,
 ) : Comparable<LyricsEntry> {
     override fun compareTo(other: LyricsEntry): Int = (time - other.time).toInt()
 

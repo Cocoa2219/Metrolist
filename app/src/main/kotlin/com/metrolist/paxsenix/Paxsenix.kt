@@ -1,7 +1,9 @@
 package com.metrolist.paxsenix
 
 import android.content.Context
-import com.metrolist.music.betterlyrics.TTMLParser
+import com.metrolist.music.lyrics.TtmlLyrics
+import com.metrolist.music.lyrics.isTtml
+import com.metrolist.music.lyrics.lyricsQuality
 import com.metrolist.paxsenix.models.AppleMusicSearchResponse
 import com.metrolist.paxsenix.models.LyricsResponse
 
@@ -250,6 +252,7 @@ object Paxsenix {
     
     private fun getQuality(lrc: String): Int {
         if (lrc.isBlank()) return 0
+        if (isTtml(lrc)) return lyricsQuality(lrc).ordinal
         val hasWordTimings = (lrc.contains("<") && lrc.contains(">") && (lrc.contains("|") || lrc.contains(":"))) ||
                 lrc.contains(Regex("<\\d{1,2}:\\d{2}\\.\\d{2,3}>"))
         
@@ -337,13 +340,9 @@ object Paxsenix {
         val lyricsType = response.type
         Timber.d("Lyrics response: type=$lyricsType")
         
-        // Prioritize ttmlContent using the robust TTMLParser
-        if (!response.ttmlContent.isNullOrBlank()) {
-            val lrc = convertTTMLToAppFormat(response.ttmlContent)
-            if (lrc.isNotEmpty()) {
-                Timber.d("Generated LRC from ttmlContent using TTMLParser")
-                return@runCatching lrc
-            }
+        // TTML is kept as sent, so Apple's translations and romanization survive.
+        if (!response.ttmlContent.isNullOrBlank() && TtmlLyrics.parse(response.ttmlContent).isNotEmpty()) {
+            return@runCatching response.ttmlContent
         }
 
         // Fallback to ELRC formats if TTML failed or is missing
@@ -456,20 +455,6 @@ object Paxsenix {
         // Sort by quality descending and callback
         collectedLyrics.sortedByDescending { it.second }.forEach { (lrc, _) ->
             callback(lrc)
-        }
-    }
-    
-    /**
-     * Convert TTML format to app format with v1/v2/bg support
-     * TTML has native agent info via ttm:agent="v1" or ttm:agent="v2"
-     */
-    private fun convertTTMLToAppFormat(ttml: String): String {
-        return try {
-            val parsedLines = TTMLParser.parseTTML(ttml)
-            TTMLParser.toLRC(parsedLines)
-        } catch (e: Exception) {
-            Timber.e(e, "TTML conversion failed: ${e.message}")
-            ""
         }
     }
 

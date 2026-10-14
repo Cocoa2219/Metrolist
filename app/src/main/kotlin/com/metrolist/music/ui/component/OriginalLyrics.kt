@@ -144,6 +144,7 @@ import com.metrolist.music.constants.TranslateModeKey
 import com.metrolist.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.metrolist.music.lyrics.LyricsEntry
 import com.metrolist.music.lyrics.LyricsTranslationHelper
+import com.metrolist.music.lyrics.LyricsUtils
 import com.metrolist.music.lyrics.LyricsUtils.findCurrentLineIndex
 import com.metrolist.music.lyrics.LyricsUtils.isBelarusian
 import com.metrolist.music.lyrics.LyricsUtils.isBulgarian
@@ -162,6 +163,7 @@ import com.metrolist.music.lyrics.LyricsUtils.romanizeCyrillic
 import com.metrolist.music.lyrics.LyricsUtils.romanizeHindi
 import com.metrolist.music.lyrics.LyricsUtils.romanizeJapanese
 import com.metrolist.music.lyrics.LyricsUtils.romanizeKorean
+import com.metrolist.music.lyrics.isTtml
 import com.metrolist.music.lyrics.lyricsTextLooksSynced
 import com.metrolist.music.ui.component.shimmer.ShimmerHost
 import com.metrolist.music.ui.component.shimmer.TextPlaceholder
@@ -172,6 +174,7 @@ import com.metrolist.music.ui.utils.fadingEdge
 import com.metrolist.music.utils.ComposeToImage
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -262,66 +265,28 @@ fun OriginalLyrics(
         remember(lyrics, scope) {
             if (lyrics == null || lyrics == LYRICS_NOT_FOUND) {
                 emptyList()
-            } else if (lyrics.startsWith("[")) {
+            } else if (lyrics.startsWith("[") || isTtml(lyrics)) {
                 val parsedLines = parseLyrics(lyrics)
+                // TTML markup and translations would skew language detection.
+                val detectionText = if (isTtml(lyrics)) parsedLines.joinToString("\n") { it.text } else lyrics
 
                 parsedLines
                     .map { entry ->
                         val newEntry =
-                            LyricsEntry(entry.time, entry.text, entry.words, agent = entry.agent, isBackground = entry.isBackground)
+                            entry.copy(
+                                romanizedTextFlow = MutableStateFlow(null),
+                                translatedTextFlow = MutableStateFlow(entry.sourceTranslation),
+                            )
 
                         scope.launch {
-                            val text = if (romanizeCyrillicByLine) entry.text else lyrics
-                            var value: String? = ""
-
-                            when {
-                                "Japanese" in enabledLanguages && isJapanese(text) && !isChinese(text) -> {
-                                    value =
-                                        romanizeJapanese(entry.text)
-                                }
-
-                                "Korean" in enabledLanguages && isKorean(text) -> {
-                                    value = romanizeKorean(entry.text)
-                                }
-
-                                "Chinese" in enabledLanguages && isChinese(text) -> {
-                                    value = romanizeChinese(entry.text)
-                                }
-
-                                "Hindi" in enabledLanguages && isHindi(text) -> {
-                                    value = romanizeHindi(entry.text)
-                                }
-
-                                "Ukrainian" in enabledLanguages && isUkrainian(text) -> {
-                                    value = romanizeCyrillic(entry.text, "Ukrainian")
-                                }
-
-                                "Russian" in enabledLanguages && isRussian(text) -> {
-                                    value = romanizeCyrillic(entry.text, "Russian")
-                                }
-
-                                "Serbian" in enabledLanguages && isSerbian(text) -> {
-                                    value = romanizeCyrillic(entry.text, "Serbian")
-                                }
-
-                                "Bulgarian" in enabledLanguages && isBulgarian(text) -> {
-                                    value = romanizeCyrillic(entry.text, "Bulgarian")
-                                }
-
-                                "Belarusian" in enabledLanguages && isBelarusian(text) -> {
-                                    value = romanizeCyrillic(entry.text, "Belarusian")
-                                }
-
-                                "Kyrgyz" in enabledLanguages && isKyrgyz(text) -> {
-                                    value = romanizeCyrillic(entry.text, "Kyrgyz")
-                                }
-
-                                "Macedonian" in enabledLanguages && isMacedonian(text) -> {
-                                    value = romanizeCyrillic(entry.text, "Macedonian")
-                                }
-                            }
-
-                            newEntry.romanizedTextFlow.value = value
+                            newEntry.romanizedTextFlow.value =
+                                LyricsUtils.romanize(
+                                    text = detectionText,
+                                    line = entry.text,
+                                    enabledLanguages = enabledLanguages,
+                                    romanizeCyrillicByLine = romanizeCyrillicByLine,
+                                    preferred = entry.sourceRomanization,
+                                )
                         }
 
                         newEntry

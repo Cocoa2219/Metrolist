@@ -6,7 +6,6 @@
 package com.metrolist.music.lyrics
 
 import android.content.Context
-import com.metrolist.music.betterlyrics.TTMLParser
 import com.metrolist.music.constants.EnableAmllKey
 import com.metrolist.music.constants.EnableLrcMuxKey
 import com.metrolist.music.constants.EnableLrcRedKey
@@ -37,8 +36,8 @@ import kotlinx.serialization.json.longOrNull
 import java.util.Locale
 import kotlin.math.abs
 
-// Sources whose public APIs are open to any client. Each answers in Metrolist's LRC dialect: TTML goes
-// through TTMLParser, LRCMux's word JSON becomes rich-sync LRC.
+// Sources whose public APIs are open to any client. TTML is stored as sent; LRCMux's word JSON
+// becomes rich-sync LRC.
 
 private val client by lazy {
     HttpClient(OkHttp) {
@@ -75,9 +74,9 @@ private fun sharesArtist(artists: String, candidate: String): Boolean {
     return wanted.any { it in key || key in it }
 }
 
-private fun ttmlToLrc(ttml: String): String =
-    TTMLParser.parseTTML(ttml).takeIf { it.isNotEmpty() }?.let(TTMLParser::toLRC)
-        ?: error("Failed to parse lyrics")
+/** TTML is kept as sent, so its translations and romanization survive; it only has to parse. */
+private fun checkedTtml(ttml: String): String =
+    ttml.takeIf { TtmlLyrics.parse(it).isNotEmpty() } ?: error("Failed to parse lyrics")
 
 /** AMLL TTML DB: community word-synced TTML (CC0), searched by title and artist. */
 object AmllLyricsProvider : LyricsProvider {
@@ -101,7 +100,7 @@ object AmllLyricsProvider : LyricsProvider {
         val ttml = getJson("$BASE/get") { parameter("id", match["id"].string()) }
             ?.get("data")?.jsonObject?.get("lyrics").string()
             ?: error("Lyrics unavailable")
-        ttmlToLrc(ttml)
+        checkedTtml(ttml)
     }
 }
 
@@ -126,7 +125,7 @@ object UnisonLyricsProvider : LyricsProvider {
             }
             ?: error("Lyrics unavailable")
         val lyrics = data["lyrics"].string()?.takeIf(String::isNotBlank) ?: error("Lyrics unavailable")
-        if (data["format"].string() == "ttml" || lyrics.contains("<tt", ignoreCase = true)) ttmlToLrc(lyrics) else lyrics
+        if (data["format"].string() == "ttml" || lyrics.contains("<tt", ignoreCase = true)) checkedTtml(lyrics) else lyrics
     }
 }
 
@@ -184,7 +183,7 @@ object LrcRedLyricsProvider : LyricsProvider {
             ?: error("Lyrics unavailable")
         val response = client.get("$BASE/s/$isrc.ttml")
         if (!response.status.isSuccess()) error("Lyrics unavailable")
-        ttmlToLrc(response.bodyAsText())
+        checkedTtml(response.bodyAsText())
     }
 
     /**
