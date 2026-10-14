@@ -1,3 +1,5 @@
+// Modified by Metrolist: keeps a space between adjacent word captions, and starts captions of
+// end-aligned words after their leading space.
 package com.mocharealm.accompanist.lyrics.ui.internal.preparation
 
 import com.mocharealm.accompanist.lyrics.ui.internal.text.*
@@ -247,6 +249,16 @@ private fun prepareLine(
     val atoms = buildList {
         for (run in runs) for (group in run.groups) {
             val atom = PreparedAtom(run.profile, group, group.preparedSourceText())
+            // End-aligned lines move spaces to the front of words; captions start at the word.
+            val leading = atom.sourceText.takeWhile { it.isWhitespace() }
+            if (rightAligned && leading.isNotEmpty() && group.phoneticWidth > 0f &&
+                !atom.sourceText.isRtl(fallback = rtl)
+            ) {
+                group.captionInset =
+                    measurer.measure(leading, style, softWrap = false).size.width.toFloat()
+                        .coerceAtMost(group.width - group.phoneticWidth)
+                        .coerceAtLeast(0f)
+            }
             val previous = lastOrNull()
             add(
                 atom.copy(
@@ -326,7 +338,8 @@ private fun prepareLine(
                 unit.phoneticPosition =
                     Offset(
                         groupLeft +
-                            (if (groupRtl) group.width - (unit.phonetic?.size?.width ?: 0) else 0f) -
+                            (if (groupRtl) group.width - (unit.phonetic?.size?.width ?: 0)
+                            else group.captionInset) -
                             unitX,
                         unit.text.baseline + descent + phoneticGap,
                     )
@@ -577,15 +590,16 @@ private fun phoneticWordGap(
     val before = previous.group
     val after = next.group
     if (before.phoneticWidth <= 0f || after.phoneticWidth <= 0f) return 0f
-    if (before.phoneticWidth <= before.textWidth && after.phoneticWidth <= after.textWidth)
-        return 0f
     // Captions align to their own script's reading edge, including within a mixed-direction row.
+    // Captions that fit inside their words can still touch, since a word's width includes its
+    // trailing space, so the gap is measured between the captions themselves.
     val trailingSlack =
-        if (previous.sourceText.isRtl(fallback = rtl) == rtl) before.width - before.phoneticWidth
+        if (previous.sourceText.isRtl(fallback = rtl) == rtl)
+            before.width - before.captionInset - before.phoneticWidth
         else 0f
     val leadingSlack =
         if (next.sourceText.isRtl(fallback = rtl) != rtl) after.width - after.phoneticWidth
-        else 0f
+        else after.captionInset
     return (spaceWidth() - trailingSlack - leadingSlack).coerceAtLeast(0f)
 }
 

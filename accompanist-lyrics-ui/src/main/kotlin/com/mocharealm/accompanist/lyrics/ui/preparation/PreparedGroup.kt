@@ -1,3 +1,4 @@
+// Modified by Metrolist: adds captionInset, so captions start at the word rather than its leading space.
 package com.mocharealm.accompanist.lyrics.ui.preparation
 
 import androidx.compose.ui.geometry.Offset
@@ -20,6 +21,8 @@ internal constructor(
     internal val phoneticWidth =
         units.maxOfOrNull { it.phonetic?.size?.width?.toFloat() ?: 0f } ?: 0f
     val width = maxOf(textWidth, phoneticWidth)
+    /** How far captions start after the group's left edge, past its leading whitespace. */
+    internal var captionInset = 0f
     private val textUnits = units.map { it.text }
     val staticText = profile.combine(textUnits)
     internal val phoneticIndices = units.indices.filter { units[it].phonetic != null }.toIntArray()

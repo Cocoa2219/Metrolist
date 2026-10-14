@@ -13,9 +13,7 @@ import androidx.compose.runtime.IntState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.rememberUpdatedState
@@ -71,6 +69,8 @@ import com.mocharealm.accompanist.lyrics.ui.composable.lyrics.LyricsAnchor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -85,6 +85,9 @@ import kotlin.math.roundToInt
 private const val LAST_LINE_FALLBACK_MS = 5000
 private const val CLOCK_RESAMPLE_NANOS = 1_000_000_000L
 private const val CLOCK_HOLD_LIMIT_MS = 1000
+
+/** Long enough for Accompanist's caption reveal spring to settle. */
+private const val CAPTION_HIDE_MS = 1000L
 
 /**
  * Playback position for Accompanist, after its sample's PlaybackClock: the player is sampled on its
@@ -176,6 +179,12 @@ fun AccompanistLyricsView(
     // whole scene for every new SyncedLyrics, so those bursts are debounced into one rebuild.
     // Cleared translations stay in the scene and are only hidden, so turning them off animates the
     // rows away like romanization does instead of rebuilding the lyrics.
+    // Word captions widen their words even while hidden, so they leave the scene once hidden.
+    val phoneticsInScene = remember { MutableStateFlow(showPhonetic) }
+    LaunchedEffect(showPhonetic) {
+        if (!showPhonetic) delay(CAPTION_HIDE_MS)
+        phoneticsInScene.value = showPhonetic
+    }
     val content by remember(lines, respectAgentPositioning) {
         if (lines.isEmpty()) {
             flowOf(null)
@@ -184,7 +193,8 @@ fun AccompanistLyricsView(
             val phonetics = CachedPhonetics(LyricsPhonetics)
             combine(lines.flatMap { listOf(it.translatedTextFlow, it.romanizedTextFlow) }) { }
                 .debounce(300)
-                .map {
+                .combine(phoneticsInScene) { _, captioned -> captioned }
+                .map { captioned ->
                     var anyTranslation = false
                     lines.forEachIndexed { i, entry ->
                         entry.translatedTextFlow.value?.takeIf { it.isNotBlank() }?.let {
@@ -192,7 +202,8 @@ fun AccompanistLyricsView(
                             anyTranslation = true
                         }
                     }
-                    lines.toSyncedLyrics(respectAgentPositioning, keptTranslations).withPhonetics(phonetics) to anyTranslation
+                    val lyrics = lines.toSyncedLyrics(respectAgentPositioning, keptTranslations)
+                    (if (captioned) lyrics.withPhonetics(phonetics) else lyrics) to anyTranslation
                 }
                 .flowOn(Dispatchers.Default)
         }
@@ -217,11 +228,8 @@ fun AccompanistLyricsView(
         )
     }
 
-    // Translation rows only animate when they toggle inside a scene that already contains them, so
-    // they are revealed once the scene built with the new translations is on screen.
-    var shownLyrics by remember { mutableStateOf<SyncedLyrics?>(null) }
+    // New translations arrive with their scene already shown, as if the lyrics came with them.
     val (lyrics, hasTranslation) = content ?: return
-    val sceneIsCurrent = remember(shownLyrics, lyrics) { shownLyrics == lyrics }
     val s = settings ?: return
     KaraokeLyricsView(
         listState = listState,
@@ -234,13 +242,12 @@ fun AccompanistLyricsView(
         breathingDotsDefaults = remember(textColor) { KaraokeBreathingDotsDefaults(breathingDotsColor = textColor) },
         blendMode = if (additiveBlend && s.additiveBlend) BlendMode.Plus else BlendMode.SrcOver,
         showPhonetic = showPhonetic,
-        showTranslation = hasTranslation && sceneIsCurrent,
+        showTranslation = hasTranslation,
         normalLineTextStyle = normalLineTextStyle,
         useBlurEffect = s.blur,
         blurDelta = s.blurStrength,
         sungLineAlpha = s.sungLineOpacity,
         lineHighlightPadding = 8.dp,
-        onSceneShown = { shownLyrics = it },
         itemSpacing = s.itemSpacing.dp,
         anchor = LyricsAnchor.Fraction(s.focusPosition),
         scrollAnimationSpec = tween(s.scrollDuration.roundToInt(), easing = FastOutSlowInEasing),
