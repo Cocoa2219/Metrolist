@@ -1,4 +1,5 @@
-// Modified by Metrolist: fully hidden reveals drop their blur so they are not rendered offscreen.
+// Modified by Metrolist: fully hidden reveals drop their blur so they are not rendered offscreen, and
+// adds LocalCaptionTightness.
 package com.mocharealm.accompanist.lyrics.ui.internal.effects
 
 import androidx.compose.animation.*
@@ -20,6 +21,9 @@ internal class LyricsCaptionTransitions {
 }
 
 internal val LocalLyricsCaptionTransitions = staticCompositionLocalOf<LyricsCaptionTransitions?> { null }
+
+/** How far words have slid to their caption-free places, read only while drawing. */
+internal val LocalCaptionTightness = staticCompositionLocalOf<() -> Float> { { 0f } }
 
 /** Transition owns size and effects together, so exit content survives until both have settled. */
 @Composable

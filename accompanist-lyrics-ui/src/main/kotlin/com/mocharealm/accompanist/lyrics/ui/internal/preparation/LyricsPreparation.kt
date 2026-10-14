@@ -1,6 +1,6 @@
 // Modified by Metrolist: keeps a space between adjacent word captions, starts captions of
-// end-aligned words after their leading space, and moves a caption that would be split across
-// wrapped rows to a line caption.
+// end-aligned words after their leading space, moves a caption that would be split across
+// wrapped rows to a line caption, and records where words sit without captions.
 package com.mocharealm.accompanist.lyrics.ui.internal.preparation
 
 import com.mocharealm.accompanist.lyrics.ui.internal.text.*
@@ -336,6 +336,10 @@ private fun prepareLine(
         val phoneticHeight = phoneticTextHeight + phoneticGap
         val left = if (rightAligned) width - rowWidth else 0f
         var x = if (rtl) left + rowWidth else left
+        // Where each group sits in the same row without captions: no caption gaps or widths.
+        val tightRowWidth = rowRuns.sumOf { run -> run.groups.sumOf { it.textWidth.toDouble() } }.toFloat()
+        val tightLeft = if (rightAligned) width - tightRowWidth else 0f
+        var tightX = if (rtl) tightLeft + tightRowWidth else tightLeft
         val starts = mutableListOf<Int>()
         val ends = mutableListOf<Int>()
         val lefts = mutableListOf<Float>()
@@ -351,6 +355,9 @@ private fun prepareLine(
             val groupLeft = if (rtl) x - group.width else x
             val groupRtl = group.preparedSourceText().isRtl(fallback = rtl)
             val textLeft = groupLeft + if (groupRtl) group.width - group.textWidth else 0f
+            val tightTextLeft = if (rtl) tightX - group.textWidth else tightX
+            tightX += if (rtl) -group.textWidth else group.textWidth
+            group.spacingShift = tightTextLeft - textLeft
             val unitEffects =
                 group.effects.scale || (group.effects.glow && !group.effects.glowAsGroup)
             val groupGlowEnd =
@@ -512,9 +519,10 @@ private fun prepareLine(
         flushRow()
     }
     var segmentStart = 0
+    var rowsMatchTight = true
     for (index in atoms.indices) {
         if (index > segmentStart && atoms[index].group.units.first().text.breakBefore) {
-            appendBalancedRows(
+            rowsMatchTight = rowsMatchTight and appendBalancedRows(
                 atoms,
                 segmentStart,
                 index,
@@ -525,7 +533,7 @@ private fun prepareLine(
             segmentStart = index
         }
     }
-    appendBalancedRows(
+    rowsMatchTight = rowsMatchTight and appendBalancedRows(
         atoms,
         segmentStart,
         atoms.size,
@@ -533,6 +541,8 @@ private fun prepareLine(
         style.localeList?.firstOrNull()?.toLanguageTag(),
         ::appendRows,
     )
+    // Words can only slide to their caption-free places if those keep the same rows.
+    if (!rowsMatchTight) for (row in rows) for (run in row.runs) for (group in run.groups) group.spacingShift = 0f
     val nested =
         (line as? KaraokeLine.MainKaraokeLine)?.accompanimentLines.orEmpty().map {
             prepareLine(
@@ -694,8 +704,8 @@ private fun appendBalancedRows(
     maxWidth: Float,
     localeTag: String?,
     appendRows: (Int, Int) -> Unit,
-) {
-    if (start >= end) return
+): Boolean {
+    if (start >= end) return true
     val text = buildString { for (index in start until end) append(atoms[index].sourceText) }
     val legalOffsets = lineBreakBoundaries(text, localeTag).toSet()
     val atomOffsets = IntArray(end - start + 1)
@@ -736,7 +746,14 @@ private fun appendBalancedRows(
             appendRows(rowStart, start + rowEnd)
             rowStart = start + rowEnd
         }
-        return
+        val tightWidths = FloatArray(end - start + 1)
+        for (index in start until end) {
+            tightWidths[index - start + 1] = tightWidths[index - start] + atoms[index].group.textWidth
+        }
+        return selected ==
+            balancedLineBreaks(end - start, candidates, maxWidth) { from, to ->
+                tightWidths[to] - tightWidths[from]
+            }
     }
 
     // A single indivisible drawable can exceed the viewport. Preserve it as an overflow row,
@@ -755,6 +772,7 @@ private fun appendBalancedRows(
         rowWidth += gap + group.width
     }
     appendRows(rowStart, end)
+    return false
 }
 
 private fun PreparedGroup.preparedSourceText(): String =

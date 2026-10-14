@@ -1,3 +1,4 @@
+// Modified by Metrolist: slides words toward their caption-free places by tightness, fading captions.
 package com.mocharealm.accompanist.lyrics.ui.internal.rendering
 
 import androidx.compose.ui.geometry.Offset
@@ -20,6 +21,8 @@ internal fun DrawScope.drawPreparedRow(
     glows: RowGlowLayers? = null,
     drawOriginal: Boolean = true,
     drawPhonetics: Boolean = true,
+    /** 0 lays words out around their captions, 1 at their caption-free places; captions fade with it. */
+    tightness: Float = 0f,
 ) {
     traceLyrics(if (drawOriginal) "Lyrics.drawRow" else "Lyrics.drawPhonetics") {
         val canvas = drawContext.canvas
@@ -45,6 +48,7 @@ internal fun DrawScope.drawPreparedRow(
                 for (groupIndex in run.groups.indices) {
                     val group = run.groups[groupIndex]
                     val cachedGroup = layers?.runs?.get(runIndex)?.get(groupIndex)
+                    val shift = group.spacingShift * tightness
                     val staticText = group.staticText
                     if (
                         !debug &&
@@ -64,7 +68,7 @@ internal fun DrawScope.drawPreparedRow(
                             if (time >= group.effectsEnd || !row.animated) 0f
                             else if (group.effects.lift) 4f * (1f - progress) * (1f - progress)
                             else 0f
-                        translate(group.staticPosition.x, group.staticPosition.y + lift) {
+                        translate(group.staticPosition.x + shift, group.staticPosition.y + lift) {
                             if (cachedGroup?.combined != null)
                                 with(cachedGroup.combined) { draw(alpha) }
                             else with(run.profile) { draw(staticText, drawColor, Shadow.None) }
@@ -107,8 +111,8 @@ internal fun DrawScope.drawPreparedRow(
                                 else -> (Bounce.transform(progress).coerceIn(0f, 1f) * 64f).toInt()
                             }
                         withTransform({
-                            scale(scale, scale, group.pivot)
-                            translate(unit.position.x, unit.position.y + lift)
+                            scale(scale, scale, group.pivot.copy(x = group.pivot.x + shift))
+                            translate(unit.position.x + shift, unit.position.y + lift)
                         }) {
                             val cached = cachedGroup?.units?.get(unitIndex)
                             if (cached != null)
@@ -142,21 +146,23 @@ internal fun DrawScope.drawPreparedRow(
             }
             // Phonetics stay anchored below their source group. The row-level sweep mask below
             // still reveals them with playback progress, while text lift/scale effects do not.
-            if (drawPhonetics) for (runIndex in row.runs.indices) {
+            if (drawPhonetics && tightness < 1f) for (runIndex in row.runs.indices) {
                 val run = row.runs[runIndex]
                 for (groupIndex in run.groups.indices) {
                     val group = run.groups[groupIndex]
                     val cachedGroup = layers?.runs?.get(runIndex)?.get(groupIndex)
+                    val shift = group.spacingShift * tightness
+                    val captionAlpha = 1f - tightness
                     for (unitIndex in group.phoneticIndices) {
                         val unit = group.units[unitIndex]
                         val layout = unit.phonetic ?: continue
                         translate(
-                            unit.position.x + unit.phoneticPosition.x,
+                            unit.position.x + unit.phoneticPosition.x + shift,
                             unit.position.y + unit.phoneticPosition.y,
                         ) {
                             val cached = cachedGroup?.units?.get(unitIndex)?.phonetic
-                            if (cached != null) with(cached) { draw(alpha) }
-                            else drawText(layout, phoneticColor)
+                            if (cached != null) with(cached) { draw(alpha * captionAlpha) }
+                            else drawText(layout, phoneticColor.copy(alpha = phoneticColor.alpha * captionAlpha))
                         }
                     }
                 }
