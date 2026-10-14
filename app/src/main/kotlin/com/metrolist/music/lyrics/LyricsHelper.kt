@@ -15,7 +15,10 @@ import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.reportException
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -26,9 +29,11 @@ import kotlinx.coroutines.selects.onTimeout
 import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 private const val TAG = "LyricsHelper"
@@ -53,8 +58,19 @@ constructor(
     private val cache = LruCache<String, List<LyricsResult>>(MAX_CACHE_SIZE)
     private var currentLyricsJob: Job? = null
 
-    @OptIn(ExperimentalCoroutinesApi::class)
+    /** The player and the playback service both ask when a song starts; they share one search. */
     suspend fun getLyrics(mediaMetadata: MediaMetadata): LyricsWithProvider {
+        val search = searches.computeIfAbsent(mediaMetadata.id) { id ->
+            searchScope.async(start = CoroutineStart.LAZY) { searchLyrics(mediaMetadata) }.also { search ->
+                search.invokeOnCompletion { searches.remove(id, search) }
+            }
+        }
+        search.start()
+        return search.await()
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun searchLyrics(mediaMetadata: MediaMetadata): LyricsWithProvider {
         currentLyricsJob?.cancel()
 
         val cached = cache.get(mediaMetadata.id)?.firstOrNull()
@@ -245,6 +261,10 @@ constructor(
 
     companion object {
         private const val MAX_CACHE_SIZE = 3
+
+        // Shared across instances, since each caller is injected its own helper.
+        private val searchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        private val searches = ConcurrentHashMap<String, Deferred<LyricsWithProvider>>()
     }
 }
 

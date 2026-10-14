@@ -172,20 +172,38 @@ object LrcRedLyricsProvider : LyricsProvider {
     private const val BASE = "https://lrc.red"
     private const val DURATION_TOLERANCE_S = 3.0
 
-    override fun isEnabled(context: Context) = context.dataStore[EnableLrcRedKey] ?: false
+    override fun isEnabled(context: Context) = context.dataStore[EnableLrcRedKey] ?: true
 
     override suspend fun getLyrics(
         context: Context, id: String, title: String, artist: String, duration: Int, album: String?,
     ): Result<String> = runCatching {
-        val hits = getJson("$BASE/search.json") { parameter("q", "$title $artist") }?.get("hits")?.jsonArray.orEmpty()
-        val isrc = hits.map { it.jsonObject }.firstOrNull { hit ->
-            val hitDuration = hit["duration"]?.jsonPrimitive?.doubleOrNull
-            sameTitle(title, hit["title"].string().orEmpty()) &&
-                sharesArtist(artist, hit["artist"].string().orEmpty()) &&
-                (duration <= 0 || hitDuration == null || abs(hitDuration - duration) <= DURATION_TOLERANCE_S)
-        }?.get("isrc").string() ?: error("Lyrics unavailable")
+        val isrc = findIsrc(title, artist, album, duration)
+            ?: EnglishSongNames.get(id, title, artist)?.let { english ->
+                findIsrc(english.title, english.artist, english.album ?: album, duration)
+            }
+            ?: error("Lyrics unavailable")
         val response = client.get("$BASE/s/$isrc.ttml")
         if (!response.status.isSuccess()) error("Lyrics unavailable")
         ttmlToLrc(response.bodyAsText())
     }
+
+    /**
+     * By title first. The album's track list catches a title Apple lists differently; only the
+     * exact album counts there, since a live album repeats the songs at similar lengths.
+     */
+    private suspend fun findIsrc(title: String, artist: String, album: String?, duration: Int): String? {
+        fun JsonObject.fits() = sharesArtist(artist, this["artist"].string().orEmpty()) &&
+            this["duration"]?.jsonPrimitive?.doubleOrNull.let { found ->
+                duration <= 0 || found == null || abs(found - duration) <= DURATION_TOLERANCE_S
+            }
+        search("$title $artist").firstOrNull { it.fits() && sameTitle(title, it["title"].string().orEmpty()) }
+            ?.let { return it["isrc"].string() }
+        if (album.isNullOrBlank()) return null
+        return search("$artist $album")
+            .firstOrNull { it.fits() && matchKey(album) == matchKey(it["album"].string().orEmpty()) }
+            ?.get("isrc").string()
+    }
+
+    private suspend fun search(query: String): List<JsonObject> =
+        getJson("$BASE/search.json") { parameter("q", query) }?.get("hits")?.jsonArray.orEmpty().map { it.jsonObject }
 }

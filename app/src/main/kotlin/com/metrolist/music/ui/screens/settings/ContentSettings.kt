@@ -136,7 +136,7 @@ fun ContentSettings(
     val (enableAmll, onEnableAmllChange) = rememberPreference(key = EnableAmllKey, defaultValue = true)
     val (enableUnison, onEnableUnisonChange) = rememberPreference(key = EnableUnisonKey, defaultValue = true)
     val (enableLrcMux, onEnableLrcMuxChange) = rememberPreference(key = EnableLrcMuxKey, defaultValue = true)
-    val (enableLrcRed, onEnableLrcRedChange) = rememberPreference(key = EnableLrcRedKey, defaultValue = false)
+    val (enableLrcRed, onEnableLrcRedChange) = rememberPreference(key = EnableLrcRedKey, defaultValue = true)
     val (lyricsProviderOrder, onLyricsProviderOrderChange) = rememberPreference(
         key = LyricsProviderOrderKey,
         defaultValue = LyricsProviderRegistry.serializeProviderOrder(LyricsProviderRegistry.getDefaultProviderOrder())
