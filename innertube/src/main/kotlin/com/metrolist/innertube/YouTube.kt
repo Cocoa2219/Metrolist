@@ -91,6 +91,9 @@ import kotlin.random.Random
 object YouTube {
     private val innerTube = InnerTube()
 
+    // A separate anonymous session, so English lookups never change the app's request language.
+    private val englishInnerTube by lazy { InnerTube().apply { locale = YouTubeLocale(gl = "US", hl = "en") } }
+
     var locale: YouTubeLocale
         get() = innerTube.locale
         set(value) {
@@ -2878,6 +2881,28 @@ object YouTube {
             cpn = cpn,
         )
     }
+
+    /** The song as YouTube Music lists it in English, for catalogs that use English names. */
+    suspend fun englishSong(videoId: String): Result<SongItem?> =
+        runCatching {
+            englishInnerTube
+                .next(WEB_REMIX, videoId, null, null, null, null)
+                .body<NextResponse>()
+                .contents.singleColumnMusicWatchNextResultsRenderer
+                ?.tabbedRenderer
+                ?.watchNextTabbedResultsRenderer
+                ?.tabs
+                ?.firstOrNull()
+                ?.tabRenderer
+                ?.content
+                ?.musicQueueRenderer
+                ?.content
+                ?.playlistPanelRenderer
+                ?.contents
+                ?.firstNotNullOfOrNull { content ->
+                    content.playlistPanelVideoRenderer?.let(NextPage::fromPlaylistPanelVideoRenderer)
+                }
+        }
 
     suspend fun next(
         endpoint: WatchEndpoint,

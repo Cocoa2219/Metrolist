@@ -31,8 +31,12 @@ object PaxsenixLyricsProvider : LyricsProvider {
         
         try {
             Paxsenix.init(context)
-            val result = Paxsenix.getLyrics(title, artist, duration, album)
-            
+            // Apple's catalog often lists K-pop and J-pop under English names.
+            val result = Paxsenix.getLyrics(title, artist, duration, album).recoverCatching { error ->
+                val english = EnglishSongNames.get(id, title, artist) ?: throw error
+                Paxsenix.getLyrics(english.title, english.artist, duration, english.album ?: album).getOrThrow()
+            }
+
             result.onSuccess { lyrics ->
                 Timber.tag(TAG).i("Success! Got ${lyrics.length} chars of lyrics")
             }.onFailure { e ->
