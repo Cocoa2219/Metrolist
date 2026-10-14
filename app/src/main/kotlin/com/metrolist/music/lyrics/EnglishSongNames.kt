@@ -12,6 +12,7 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import timber.log.Timber
 
 data class EnglishSongName(val title: String, val artist: String, val album: String?)
 
@@ -32,7 +33,9 @@ object EnglishSongNames {
         val lookup = synchronized(lookups) {
             lookups.getOrPut(videoId) {
                 scope.async(start = CoroutineStart.LAZY) {
-                    YouTube.englishSong(videoId).getOrNull()?.let { song ->
+                    YouTube.englishSong(videoId)
+                        .onFailure { Timber.tag("EnglishSongNames").w(it, "English lookup failed for $videoId") }
+                        .getOrNull()?.let { song ->
                         EnglishSongName(
                             LyricsUtils.cleanTitleForSearch(song.title),
                             song.artists.joinToString { it.name },
@@ -42,6 +45,11 @@ object EnglishSongNames {
                 }
             }
         }
-        return lookup.await()?.takeUnless { it.title == title && it.artist == artist }
+        val english = lookup.await()
+        Timber.tag("EnglishSongNames").d(
+            if (english == null) "No English names for $videoId"
+            else "English names for $videoId: '${english.title}' by '${english.artist}' (album='${english.album}')",
+        )
+        return english?.takeUnless { it.title == title && it.artist == artist }
     }
 }

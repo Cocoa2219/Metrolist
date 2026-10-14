@@ -35,6 +35,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.util.Locale
 import kotlin.math.abs
+import timber.log.Timber
 
 // Sources whose public APIs are open to any client. TTML is stored as sent; LRCMux's word JSON
 // becomes rich-sync LRC.
@@ -168,6 +169,7 @@ object LrcMuxLyricsProvider : LyricsProvider {
 /** lrc.red: Apple Music's TTML by ISRC, found through its site search. */
 object LrcRedLyricsProvider : LyricsProvider {
     override val name = "LrcRed"
+    private const val TAG = "LrcRed"
     private const val BASE = "https://lrc.red"
     private const val DURATION_TOLERANCE_S = 3.0
 
@@ -176,14 +178,27 @@ object LrcRedLyricsProvider : LyricsProvider {
     override suspend fun getLyrics(
         context: Context, id: String, title: String, artist: String, duration: Int, album: String?,
     ): Result<String> = runCatching {
+        Timber.tag(TAG).d("Looking up '$title' by '$artist' (album='$album', duration=${duration}s, video=$id)")
         val isrc = findIsrc(title, artist, album, duration)
-            ?: EnglishSongNames.get(id, title, artist)?.let { english ->
-                findIsrc(english.title, english.artist, english.album ?: album, duration)
+            ?: run {
+                val english = EnglishSongNames.get(id, title, artist)
+                if (english == null) {
+                    Timber.tag(TAG).d("No English names differ from the original; giving up")
+                    null
+                } else {
+                    Timber.tag(TAG).d("Retrying with English names: '${english.title}' by '${english.artist}' (album='${english.album}')")
+                    findIsrc(english.title, english.artist, english.album ?: album, duration)
+                }
             }
             ?: error("Lyrics unavailable")
         val response = client.get("$BASE/s/$isrc.ttml")
-        if (!response.status.isSuccess()) error("Lyrics unavailable")
-        checkedTtml(response.bodyAsText())
+        if (!response.status.isSuccess()) {
+            Timber.tag(TAG).w("TTML for $isrc returned ${response.status}")
+            error("Lyrics unavailable")
+        }
+        val ttml = response.bodyAsText()
+        Timber.tag(TAG).d("Got TTML for $isrc (${ttml.length} chars)")
+        checkedTtml(ttml)
     }
 
     /**
@@ -191,16 +206,41 @@ object LrcRedLyricsProvider : LyricsProvider {
      * exact album counts there, since a live album repeats the songs at similar lengths.
      */
     private suspend fun findIsrc(title: String, artist: String, album: String?, duration: Int): String? {
-        fun JsonObject.fits() = sharesArtist(artist, this["artist"].string().orEmpty()) &&
-            this["duration"]?.jsonPrimitive?.doubleOrNull.let { found ->
-                duration <= 0 || found == null || abs(found - duration) <= DURATION_TOLERANCE_S
+        /** Why a hit does not fit, or null when it does. */
+        fun JsonObject.mismatch(matchTitle: Boolean): String? {
+            val hitTitle = this["title"].string().orEmpty()
+            val hitArtist = this["artist"].string().orEmpty()
+            val hitDuration = this["duration"]?.jsonPrimitive?.doubleOrNull
+            return when {
+                matchTitle && !sameTitle(title, hitTitle) -> "title '$hitTitle'"
+                !matchTitle && matchKey(album.orEmpty()) != matchKey(this["album"].string().orEmpty()) -> "album '${this["album"].string()}'"
+                !sharesArtist(artist, hitArtist) -> "artist '$hitArtist'"
+                duration > 0 && hitDuration != null && abs(hitDuration - duration) > DURATION_TOLERANCE_S ->
+                    "duration ${hitDuration}s"
+                else -> null
             }
-        search("$title $artist").firstOrNull { it.fits() && sameTitle(title, it["title"].string().orEmpty()) }
-            ?.let { return it["isrc"].string() }
-        if (album.isNullOrBlank()) return null
-        return search("$artist $album")
-            .firstOrNull { it.fits() && matchKey(album) == matchKey(it["album"].string().orEmpty()) }
-            ?.get("isrc").string()
+        }
+        fun pick(step: String, query: String, hits: List<JsonObject>, matchTitle: Boolean): String? {
+            Timber.tag(TAG).d("$step search '$query': ${hits.size} hits")
+            for (hit in hits) {
+                val reason = hit.mismatch(matchTitle)
+                val label = "'${hit["title"].string()}' by '${hit["artist"].string()}' [${hit["isrc"].string()}]"
+                if (reason == null) {
+                    Timber.tag(TAG).d("$step match: $label")
+                    return hit["isrc"].string()
+                }
+                Timber.tag(TAG).v("$step skip $label: $reason")
+            }
+            return null
+        }
+        val titleQuery = "$title $artist"
+        pick("Title", titleQuery, search(titleQuery), matchTitle = true)?.let { return it }
+        if (album.isNullOrBlank()) {
+            Timber.tag(TAG).d("No album to fall back on")
+            return null
+        }
+        val albumQuery = "$artist $album"
+        return pick("Album", albumQuery, search(albumQuery), matchTitle = false)
     }
 
     private suspend fun search(query: String): List<JsonObject> =

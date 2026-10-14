@@ -125,8 +125,6 @@ internal fun LyricsLine(
     isSynced: Boolean,
     isActiveLine: Boolean,
     bgVisible: Boolean,
-    isSelected: Boolean,
-    isSelectionModeActive: Boolean,
     currentPositionState: Long,
     lyricsOffset: Long,
     playerConnection: PlayerConnection,
@@ -155,7 +153,6 @@ internal fun LyricsLine(
             onClick = onClick,
             onLongClick = onLongClick
         )
-        .background(if (isSelected && isSelectionModeActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else Color.Transparent)
         .padding(
             start = when (lyricsTextPosition) { LyricsPosition.LEFT, LyricsPosition.RIGHT -> 11.dp; LyricsPosition.CENTER -> 24.dp },
             end = when (lyricsTextPosition) { LyricsPosition.LEFT, LyricsPosition.RIGHT -> 11.dp; LyricsPosition.CENTER -> 24.dp },

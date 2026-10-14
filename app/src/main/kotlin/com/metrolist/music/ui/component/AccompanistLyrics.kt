@@ -172,7 +172,7 @@ fun AccompanistLyricsView(
     respectAgentPositioning: Boolean,
     showPhonetic: Boolean,
     onLineClicked: (startMs: Long) -> Unit,
-    onLineLongPressed: (text: String) -> Unit,
+    onLineLongPressed: (startMs: Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Translations and romanizations fill in line by line after parsing. Accompanist re-prepares the
@@ -236,7 +236,7 @@ fun AccompanistLyricsView(
         lyrics = lyrics,
         currentPosition = currentPosition,
         onLineClicked = { onLineClicked(it.start.toLong()) },
-        onLinePressed = { line -> line.text()?.let(onLineLongPressed) },
+        onLinePressed = { onLineLongPressed(it.start.toLong()) },
         modifier = modifier,
         textColor = textColor,
         breathingDotsDefaults = remember(textColor) { KaraokeBreathingDotsDefaults(breathingDotsColor = textColor) },
@@ -280,12 +280,6 @@ private data class AccompanistViewSettings(
         scrollDuration = prefs[AccompanistScrollDurationKey] ?: AccompanistScrollDurationDefault,
         autoResume = prefs[AccompanistAutoResumeKey] ?: AccompanistAutoResumeDefault,
     )
-}
-
-private fun ISyncedLine.text(): String? = when (this) {
-    is KaraokeLine -> syllables.joinToString("") { it.content }.trim()
-    is SyncedLine -> content
-    else -> null
 }
 
 /**
