@@ -1,6 +1,7 @@
 package com.metrolist.wear
 
 import android.content.ComponentName
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -80,9 +81,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         lifecycle.addObserver(ambientObserver)
         setContent {
+            var exiting by remember { mutableStateOf(false) }
             MetrolistWearTheme {
-                AppScaffold {
-                    WearNavigation(app, controller, ambientDetails, ambientMinute, onExit = ::finish)
+                // Swipe-right-to-exit is done here (the window's is off in the theme) so it yields to drags the app
+                // has claimed, like the seek dot. It wraps the scaffold so the black background leaves with the app,
+                // revealing what's underneath the translucent window, and once dismissed nothing is drawn again:
+                // the box resetting would otherwise flash the app back as an afterimage while the window closes.
+                if (!exiting) {
+                    BasicSwipeToDismissBox(
+                        onDismissed = {
+                            exiting = true
+                            exitAfterSwipe()
+                        },
+                    ) { isBackground ->
+                        if (!isBackground) {
+                            AppScaffold { WearNavigation(app, controller, ambientDetails, ambientMinute) }
+                        }
+                    }
                 }
             }
         }
@@ -102,6 +117,16 @@ class MainActivity : ComponentActivity() {
         app.refreshAccount()
     }
 
+    // The swipe already animated the app away, so the system close animation is skipped too.
+    private fun exitAfterSwipe() {
+        if (Build.VERSION.SDK_INT >= 34) overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        finish()
+        if (Build.VERSION.SDK_INT < 34) {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
+        }
+    }
+
     override fun onStop() {
         controller = null
         controllerFuture?.let(MediaController::releaseFuture)
@@ -116,7 +141,6 @@ private fun WearNavigation(
     player: Player?,
     ambient: AmbientLifecycleObserver.AmbientDetails?,
     ambientMinute: Int,
-    onExit: () -> Unit,
 ) {
     val account by app.account.collectAsState()
     val likedSongs by app.likedSongs.collectAsState()
@@ -160,46 +184,42 @@ private fun WearNavigation(
             val volume = rememberVolumeState()
             val homeListState = rememberTransformingLazyColumnState()
             val artworkDim by animateFloatAsState(if (nowPlaying.playing) 0.05f else 0.45f, label = "artworkDim")
-            // Swipe-right-to-exit lives here (the window's is off in the theme): unlike the system one it
-            // yields to a drag the seek ring has already claimed.
-            BasicSwipeToDismissBox(onDismissed = onExit) { isBackground ->
-                if (!isBackground) MainPager(
-                    pagerState = pagerState,
-                    nowPlaying = nowPlaying,
-                    artworkDim = { artworkDim },
-                    volume = volume,
-                    accent = accent,
-                    homeListState = homeListState,
-                ) { page ->
-                    when (page) {
-                        PAGE_ARTWORK -> ArtworkPage(player, nowPlaying, volume, haptics)
-                        PAGE_PLAYER ->
-                            PlayerPage(
-                                player = player,
-                                nowPlaying = nowPlaying,
-                                accent = accent,
-                                liked = liked,
-                                onLikedChange = { nowPlaying.mediaId?.let { id -> app.setLiked(id, it) } },
-                                volume = volume,
-                                haptics = haptics,
-                            )
-                        PAGE_HOME ->
-                            HomePage(
-                                account = account,
-                                listState = homeListState,
-                                nowPlayingId = nowPlaying.mediaId,
-                                accent = accent,
-                                haptics = haptics,
-                                onPlay = { songs, index ->
-                                    if (player != null) {
-                                        player.setMediaItems(songs.map { it.toMediaItem() }, index, 0L)
-                                        player.prepare()
-                                        player.play()
-                                        scope.launch { pagerState.animateScrollToPage(PAGE_PLAYER) }
-                                    }
-                                },
-                            )
-                    }
+            MainPager(
+                pagerState = pagerState,
+                nowPlaying = nowPlaying,
+                artworkDim = { artworkDim },
+                volume = volume,
+                accent = accent,
+                homeListState = homeListState,
+            ) { page ->
+                when (page) {
+                    PAGE_ARTWORK -> ArtworkPage(player, nowPlaying, volume, haptics)
+                    PAGE_PLAYER ->
+                        PlayerPage(
+                            player = player,
+                            nowPlaying = nowPlaying,
+                            accent = accent,
+                            liked = liked,
+                            onLikedChange = { nowPlaying.mediaId?.let { id -> app.setLiked(id, it) } },
+                            volume = volume,
+                            haptics = haptics,
+                        )
+                    PAGE_HOME ->
+                        HomePage(
+                            account = account,
+                            listState = homeListState,
+                            nowPlayingId = nowPlaying.mediaId,
+                            accent = accent,
+                            haptics = haptics,
+                            onPlay = { songs, index ->
+                                if (player != null) {
+                                    player.setMediaItems(songs.map { it.toMediaItem() }, index, 0L)
+                                    player.prepare()
+                                    player.play()
+                                    scope.launch { pagerState.animateScrollToPage(PAGE_PLAYER) }
+                                }
+                            },
+                        )
                 }
             }
         }

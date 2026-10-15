@@ -26,12 +26,11 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.sin
 
-// Degrees on the right edge (0° = 3 o'clock, clockwise), measured off Spotify's watch app. The group (a dot per
-// media page, then home's track) stays centred while the track grows, so the dots move up to make room.
+// Degrees on the right edge (0° = 3 o'clock, clockwise), measured off Spotify's watch app. Items sit in a row
+// that stays centred while home's track grows, so the media dots shift up to make room.
 private const val MEDIA_PAGES = 2
-private const val DOT_SPACING = 5.5f
-private const val TRACK_GAP = 5.5f
-private const val TRACK_SHORT = 7.5f
+// Centre-to-centre distance between dots; also the gap between home's thumb and the rest of its track.
+private const val SPACING = 5.5f
 private const val TRACK_FULL = 24.5f
 private const val CENTER_COLLAPSED = 0f
 private const val CENTER_EXPANDED = -5f
@@ -72,23 +71,81 @@ fun PagerScrollIndicator(
         val radius = size.minDimension / 2 - 8.dp.toPx()
         val width = 7.dp.toPx()
 
-        val trackLength = TRACK_SHORT + (TRACK_FULL - TRACK_SHORT) * towardHome
-        val groupSpan = DOT_SPACING * (MEDIA_PAGES - 1) + TRACK_GAP + trackLength
-        val groupStart = CENTER_COLLAPSED + (CENTER_EXPANDED - CENTER_COLLAPSED) * towardHome - groupSpan / 2
-        repeat(MEDIA_PAGES) { index ->
-            val color = if (pagerState.currentPage == index) Selected else Unselected
-            drawCircle(color, width / 2, pointAt(groupStart + index * DOT_SPACING, radius))
+        val trackLength = TRACK_FULL * towardHome
+        val groupStart = CENTER_COLLAPSED + (CENTER_EXPANDED - CENTER_COLLAPSED) * towardHome -
+            (SPACING * MEDIA_PAGES + trackLength) / 2
+        val dotAt = List(MEDIA_PAGES) { groupStart + it * SPACING }
+        val trackStart = groupStart + SPACING * MEDIA_PAGES
+        val trackEnd = trackStart + trackLength
+
+        dotAt.forEach { drawSegment(it, it, Unselected, radius, width) }
+
+        // The current page is a white dot that moves like a worm between artwork and player: its leading edge
+        // reaches the next dot in the first half of the swipe, then its trailing edge catches up and it's a dot again.
+        if (position < MEDIA_PAGES - 1) {
+            val from = position.toInt().coerceIn(0, MEDIA_PAGES - 2)
+            val progress = position - from
+            val lead = (progress * 2f).coerceAtMost(1f)
+            val trail = (progress * 2f - 1f).coerceAtLeast(0f)
+            val step = dotAt[from + 1] - dotAt[from]
+            drawSegment(dotAt[from] + step * trail, dotAt[from] + step * lead, Selected, radius, width)
+        } else {
+            // Toward home the player's white dot hands over to the scroll thumb.
+            drawSegment(dotAt.last(), dotAt.last(), Selected.copy(alpha = 1f - towardHome), radius, width)
         }
-        val trackStart = groupStart + DOT_SPACING * (MEDIA_PAGES - 1) + TRACK_GAP
-        drawEdgeArc(trackStart, trackStart + trackLength, Unselected, radius, width)
-        // No thumb until home's list has laid out; guessing "all visible" would flash the whole track white.
+
+        // Home's track; on home the thumb is its own object (M3's gapped style). As in Spotify the thumb uses the
+        // whole track, and the grey piece on either side lives in whatever space the thumb leaves (minus a gap):
+        // nothing when flush, then a dot that grows, then a segment. No thumb until the list has laid out and can scroll.
         val thumb = listState.thumb()
-        if (towardHome > 0f && thumb != null) {
+        if (thumb == null || towardHome == 0f) {
+            drawSegment(trackStart, trackEnd, Unselected, radius, width)
+        } else {
             val (start, length) = thumb
-            val from = trackStart + start * trackLength * (1f - length)
-            val span = trackLength
-            drawEdgeArc(from, from + span * length, Selected.copy(alpha = towardHome), radius, width)
+            val thumbLength = trackLength * length
+            val thumbStart = trackStart + (trackLength - thumbLength) * start
+            val thumbEnd = thumbStart + thumbLength
+            val dotDegrees = (width / radius * 180f / PI).toFloat()
+            drawEmergingPiece(trackStart, thumbStart - SPACING, anchorAtStart = true, dotDegrees, radius, width)
+            drawSegment(thumbStart, thumbEnd, Selected.copy(alpha = towardHome), radius, width)
+            drawEmergingPiece(thumbEnd + SPACING, trackEnd, anchorAtStart = false, dotDegrees, radius, width)
         }
+    }
+}
+
+/**
+ * A grey track piece from [from] to [to] that may not fit yet: with negative room it's a dot scaled by how much of
+ * a dot's diameter is available, pinned to the track end ([anchorAtStart] picks which), and gone below that.
+ */
+private fun DrawScope.drawEmergingPiece(
+    from: Float,
+    to: Float,
+    anchorAtStart: Boolean,
+    dotDegrees: Float,
+    radius: Float,
+    width: Float,
+) {
+    val room = to - from
+    if (room >= 0f) {
+        drawSegment(from, to, Unselected, radius, width)
+        return
+    }
+    val scale = ((room + dotDegrees) / dotDegrees).coerceIn(0f, 1f)
+    if (scale > 0f) drawCircle(Unselected, width / 2 * scale, pointAt(if (anchorAtStart) from else to, radius))
+}
+
+/** An arc from [from] to [to] with round caps, or a dot when it has no length. */
+private fun DrawScope.drawSegment(
+    from: Float,
+    to: Float,
+    color: Color,
+    radius: Float,
+    width: Float,
+) {
+    if (to - from < 0.1f) {
+        drawCircle(color, width / 2, pointAt(from, radius))
+    } else {
+        drawEdgeArc(from, to, color, radius, width)
     }
 }
 
