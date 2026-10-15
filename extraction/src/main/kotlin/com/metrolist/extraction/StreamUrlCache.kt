@@ -3,13 +3,13 @@
  * Licensed under GPL-3.0 | See git history for contributors
  */
 
-package com.metrolist.music.playback
+package com.metrolist.extraction
 
-import androidx.core.net.toUri
+import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.datasource.DataSpec
 
-internal data class CachedStreamUrl(
+data class CachedStreamUrl(
     val url: String,
     val requestHeaders: Map<String, String>,
     val clientName: String,
@@ -18,9 +18,9 @@ internal data class CachedStreamUrl(
     val useRangeChunks: Boolean = false,
 )
 
-internal fun DataSpec.withResolvedStream(stream: CachedStreamUrl): DataSpec {
+fun DataSpec.withResolvedStream(stream: CachedStreamUrl): DataSpec {
     val resolved =
-        withUri(stream.url.toUri())
+        withUri(Uri.parse(stream.url))
             .withRequestHeaders(httpRequestHeaders + stream.requestHeaders)
     if ((!stream.requireBoundedRange && !stream.useRangeChunks) || stream.rangeChunkSizeBytes <= 0L) {
         return resolved
@@ -34,7 +34,7 @@ internal fun DataSpec.withResolvedStream(stream: CachedStreamUrl): DataSpec {
     return resolved.subrange(0, boundedLength)
 }
 
-internal class StreamUrlCache(
+class StreamUrlCache(
     private val maxEntries: Int = 500,
     private val currentTimeMillis: () -> Long = System::currentTimeMillis,
 ) {

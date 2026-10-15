@@ -37,7 +37,10 @@ import com.metrolist.music.di.DownloadCache
 import com.metrolist.music.di.PlayerCache
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
+import com.metrolist.extraction.CachedStreamUrl
 import com.metrolist.extraction.InnerTubeXPlayer
+import com.metrolist.extraction.StreamUrlCache
+import com.metrolist.extraction.withResolvedStream
 import com.metrolist.music.utils.enumPreference
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope

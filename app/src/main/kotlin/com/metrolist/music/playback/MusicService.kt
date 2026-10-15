@@ -220,7 +220,10 @@ import com.metrolist.music.utils.ScrobbleManager
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.getArtistSeparator
 import com.metrolist.music.utils.joinToArtistString
+import com.metrolist.extraction.CachedStreamUrl
 import com.metrolist.extraction.InnerTubeXPlayer
+import com.metrolist.extraction.StreamUrlCache
+import com.metrolist.extraction.withResolvedStream
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import com.metrolist.music.utils.reportException

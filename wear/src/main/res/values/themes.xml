@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Swipe-to-exit is done in Compose instead, so drags the app claims (the seek dot) can't close it. -->
+    <style name="Theme.MetrolistWear" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowSwipeToDismiss">false</item>
+    </style>
+</resources>

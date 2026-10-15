@@ -23,6 +23,7 @@ kotlin {
 
 dependencies {
     api(project(":innertube"))
+    api(libs.media3)
     implementation(libs.timber)
     coreLibraryDesugaring(libs.desugaring)
     testImplementation(libs.junit)

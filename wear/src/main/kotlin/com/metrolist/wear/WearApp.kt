@@ -5,9 +5,13 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
 import com.metrolist.extraction.InnerTubeXPlayer
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.YouTubeLocale
+import com.metrolist.innertube.utils.completed
 import com.metrolist.innertubex.extraction.PoTokenResult
 import com.metrolist.innertubex.extraction.TokenProvider
 import kotlinx.coroutines.CoroutineScope
@@ -16,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -43,6 +48,42 @@ class WearApp : Application() {
     private val accountLock = Mutex()
     private val _account = MutableStateFlow<AccountState>(AccountState.Loading)
     val account: StateFlow<AccountState> = _account
+
+    // innertube has no per-song like status, so membership in the Liked songs playlist stands in for it.
+    private val _likedSongs = MutableStateFlow<Set<String>>(emptySet())
+    val likedSongs: StateFlow<Set<String>> = _likedSongs
+    private var likedSongsLoaded = false
+
+    fun setLiked(
+        videoId: String,
+        liked: Boolean,
+    ) {
+        _likedSongs.update { if (liked) it + videoId else it - videoId }
+        scope.launch {
+            YouTube.likeVideo(videoId, liked).onFailure {
+                Timber.w(it, "Like change failed for $videoId")
+                _likedSongs.update { songs -> if (liked) songs - videoId else songs + videoId }
+            }
+        }
+    }
+
+    private suspend fun loadLikedSongs() {
+        if (likedSongsLoaded) return
+        YouTube.playlist("LM").completed()
+            .onSuccess { page ->
+                _likedSongs.value = page.songs.mapTo(HashSet()) { it.id }
+                likedSongsLoaded = true
+            }.onFailure { Timber.w(it, "Could not load Liked songs") }
+    }
+
+    // SimpleCache allows one instance per folder for the process lifetime, so it can't live in the service.
+    val playerCache by lazy {
+        SimpleCache(
+            File(cacheDir, "media"),
+            LeastRecentlyUsedCacheEvictor(PLAYER_CACHE_BYTES),
+            StandaloneDatabaseProvider(this),
+        )
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -75,7 +116,10 @@ class WearApp : Application() {
                         runCatching { YouTube.cookie = cookie }
                             .mapCatching { YouTube.accountInfo().getOrThrow() }
                             .fold(
-                                onSuccess = { AccountState.SignedIn(it.name) },
+                                onSuccess = {
+                                    scope.launch { loadLikedSongs() }
+                                    AccountState.SignedIn(it.name)
+                                },
                                 onFailure = {
                                     Timber.w(it, "Stored cookie was rejected")
                                     AccountState.Failed
@@ -101,6 +145,7 @@ class WearApp : Application() {
 
     private companion object {
         const val COOKIE_FILE = "cookies.txt"
+        const val PLAYER_CACHE_BYTES = 256L * 1024 * 1024
     }
 }
 

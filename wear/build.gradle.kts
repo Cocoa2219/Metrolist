@@ -34,12 +34,48 @@ kotlin {
     jvmToolchain(21)
 }
 
+// Pretendard JP comes from the phone app's resources at build time rather than a second copy in git.
+// Only Regular and Bold: each weight is ~5 MB.
+abstract class SharedFontsTask : DefaultTask() {
+    @get:InputFiles
+    abstract val fonts: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val fontDir = outputDir.get().asFile.resolve("font").apply { mkdirs() }
+        fonts.forEach { it.copyTo(fontDir.resolve(it.name), overwrite = true) }
+    }
+}
+
+val sharedFonts =
+    tasks.register<SharedFontsTask>("sharedFonts") {
+        fonts.from(rootProject.file("app/src/main/res/font/pretendardjp_regular.ttf"))
+        fonts.from(rootProject.file("app/src/main/res/font/pretendardjp_bold.ttf"))
+    }
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.res?.addGeneratedSourceDirectory(sharedFonts, SharedFontsTask::outputDir)
+    }
+}
+
 dependencies {
     implementation(project(":extraction"))
     implementation(libs.activity)
     implementation(libs.compose.foundation)
     implementation(libs.wear.compose.foundation)
     implementation(libs.wear.compose.material3)
+    implementation(libs.wear.compose.navigation)
+    implementation(libs.viewmodel.compose)
+    implementation(libs.media3.okhttp)
+    implementation(libs.media3.session)
+    implementation(libs.wear.ambient)
+    implementation(libs.coil)
+    implementation(libs.coil.network.okhttp)
+    implementation(libs.palette)
     implementation(libs.datastore)
     implementation(libs.timber)
     coreLibraryDesugaring(libs.desugaring)
