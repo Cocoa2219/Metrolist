@@ -12,6 +12,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.widget.Toast
+import android.text.format.DateUtils
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -69,6 +71,12 @@ import com.metrolist.music.betterlyrics.TTMLParser
 import com.metrolist.music.lyrics.LyricsTranslationHelper
 import com.metrolist.music.lyrics.LyricsUtils
 import com.metrolist.music.lyrics.isTtml
+import com.metrolist.music.lyrics.LyricsQuality
+import com.metrolist.music.lyrics.StoredTranslation
+import com.metrolist.music.lyrics.StoredTranslations
+import com.metrolist.music.lyrics.storedTranslations
+import com.metrolist.music.lyrics.withTranslations
+import com.metrolist.music.lyrics.lyricsQuality
 import com.metrolist.music.lyrics.lyricsTextLooksSynced
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.ui.component.DefaultDialog
@@ -92,6 +100,7 @@ import com.metrolist.music.constants.OpenRouterDefaultModel
 import com.metrolist.music.constants.OpenRouterModelKey
 import com.metrolist.music.constants.DeeplFormalityKey
 import com.metrolist.music.utils.rememberPreference
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -122,6 +131,27 @@ fun LyricsMenu(
     // Observe the authoritative translation-active state from the singleton; this persists
     // correctly across menu open/close cycles and avoids the lyricsProvider() race condition.
     val hasTranslations by LyricsTranslationHelper.hasActiveTranslations.collectAsStateWithLifecycle()
+    val storedTranslations = remember(lyricsProvider()?.translatedLyrics) {
+        lyricsProvider()?.storedTranslations() ?: StoredTranslations()
+    }
+    // The lyrics views reload translations whenever the lyrics row changes.
+    fun updateTranslations(update: (StoredTranslations) -> StoredTranslations) {
+        val lyrics = lyricsProvider() ?: return
+        database.query { upsert(lyrics.withTranslations(update(lyrics.storedTranslations()))) }
+    }
+    var showTranslationsDialog by rememberSaveable { mutableStateOf(false) }
+    if (showTranslationsDialog) {
+        SavedTranslationsDialog(
+            translations = storedTranslations,
+            onSelect = { index -> updateTranslations { it.copy(selected = index, shown = index >= 0) } },
+            onDelete = { index -> updateTranslations { it.without(index) } },
+            onReset = {
+                updateTranslations { StoredTranslations() }
+                showTranslationsDialog = false
+            },
+            onDismiss = { showTranslationsDialog = false },
+        )
+    }
 
     var showEditDialog by rememberSaveable {
         mutableStateOf(false)
@@ -319,17 +349,25 @@ fun LyricsMenu(
                                 color = MaterialTheme.colorScheme.secondary,
                                 maxLines = 1,
                             )
-                            if (lyricsTextLooksSynced(result.lyrics)) {
-                                Icon(
-                                    painter = painterResource(R.drawable.sync),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.secondary,
-                                    modifier =
-                                    Modifier
-                                        .padding(start = 4.dp)
-                                        .size(18.dp),
-                                )
+                            val quality = remember(result.lyrics) { lyricsQuality(result.lyrics) }
+                            val (syncIcon, syncLabel) = when (quality) {
+                                LyricsQuality.WORD_SYNCED -> R.drawable.match_word to R.string.lyrics_sync_word
+                                LyricsQuality.LINE_SYNCED -> R.drawable.format_align_left to R.string.lyrics_sync_line
+                                else -> R.drawable.notes to R.string.lyrics_sync_none
                             }
+                            Icon(
+                                painter = painterResource(syncIcon),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.padding(start = 8.dp).size(16.dp),
+                            )
+                            Text(
+                                text = stringResource(syncLabel),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.secondary,
+                                maxLines = 1,
+                                modifier = Modifier.padding(start = 2.dp),
+                            )
                         }
                     }
 
@@ -496,15 +534,7 @@ fun LyricsMenu(
                                 },
                                 onClick = {
                                     if (hasTranslations) {
-                                        // Remove translations
-                                        lyricsProvider()?.let { lyrics ->
-                                            val clearedLyrics = LyricsTranslationHelper.clearTranslations(lyrics)
-                                            database.query {
-                                                upsert(clearedLyrics)
-                                            }
-                                            // Resets hasActiveTranslations and clears in-memory translations
-                                            LyricsTranslationHelper.triggerClearTranslations()
-                                        }
+                                        updateTranslations { it.copy(shown = false) }
                                     } else {
                                         // Trigger translation
                                         LyricsTranslationHelper.triggerManualTranslation()
@@ -518,14 +548,8 @@ fun LyricsMenu(
                                                 // Enable translations – hasActiveTranslations updates when done
                                                 LyricsTranslationHelper.triggerManualTranslation()
                                             } else {
-                                                // Disable translations – triggerClearTranslations resets hasActiveTranslations
-                                                lyricsProvider()?.let { lyrics ->
-                                                    val clearedLyrics = LyricsTranslationHelper.clearTranslations(lyrics)
-                                                    database.query {
-                                                        upsert(clearedLyrics)
-                                                    }
-                                                    LyricsTranslationHelper.triggerClearTranslations()
-                                                }
+                                                // Hidden translations stay saved, and come back without a new request.
+                                                updateTranslations { it.copy(shown = false) }
                                             }
                                         },
                                         thumbContent = {
@@ -548,6 +572,24 @@ fun LyricsMenu(
                         )
                     }
                     
+                    if (storedTranslations.translations.isNotEmpty()) {
+                        add(
+                            Material3MenuItemData(
+                                title = { Text(stringResource(R.string.saved_translations)) },
+                                description = {
+                                    Text(storedTranslations.active?.let { translationLabel(it) } ?: stringResource(R.string.saved_translations_off))
+                                },
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(R.drawable.history),
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = { showTranslationsDialog = true },
+                            ),
+                        )
+                    }
+
                     add(
                         Material3MenuItemData(
                             title = { Text(stringResource(R.string.respect_agent_positioning)) },
@@ -695,6 +737,77 @@ fun LyricsMenu(
                     )
                 }
             )
+        }
+    }
+}
+
+@Composable
+private fun translationLabel(translation: StoredTranslation): String {
+    val language = remember(translation.language) {
+        Locale.forLanguageTag(translation.language).displayLanguage.ifBlank { translation.language }
+    }
+    val mode = when (translation.mode) {
+        "Literal" -> stringResource(R.string.ai_translation_literal)
+        "Transcribed" -> stringResource(R.string.ai_translation_transcribed)
+        else -> translation.mode
+    }
+    return "$language · $mode"
+}
+
+/** Every translation saved for the song; the chosen one shows under the lyrics. */
+@Composable
+private fun SavedTranslationsDialog(
+    translations: StoredTranslations,
+    onSelect: (Int) -> Unit,
+    onDelete: (Int) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val selected = if (translations.shown) translations.selected else -1
+    DefaultDialog(
+        onDismiss = onDismiss,
+        icon = { Icon(painter = painterResource(R.drawable.history), contentDescription = null) },
+        title = { Text(stringResource(R.string.saved_translations)) },
+        horizontalAlignment = Alignment.Start,
+        buttons = {
+            TextButton(onClick = onReset) { Text(stringResource(R.string.reset_translations)) }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onDismiss) { Text(stringResource(android.R.string.ok)) }
+        },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().clickable { onSelect(-1) }.padding(vertical = 4.dp),
+        ) {
+            RadioButton(selected = selected == -1, onClick = { onSelect(-1) })
+            Text(stringResource(R.string.saved_translations_off), modifier = Modifier.weight(1f))
+        }
+        translations.translations.forEachIndexed { index, translation ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { onSelect(index) }.padding(vertical = 4.dp),
+            ) {
+                RadioButton(selected = selected == index, onClick = { onSelect(index) })
+                Column(Modifier.weight(1f)) {
+                    Text(translationLabel(translation), style = MaterialTheme.typography.bodyLarge)
+                    val details = listOfNotNull(
+                        translation.model.takeIf(String::isNotBlank),
+                        translation.createdAt.takeIf { it > 0 }?.let {
+                            DateUtils.getRelativeTimeSpanString(it).toString()
+                        },
+                    ).joinToString(" · ")
+                    if (details.isNotEmpty()) {
+                        Text(
+                            details,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                IconButton(onClick = { onDelete(index) }) {
+                    Icon(painter = painterResource(R.drawable.delete), contentDescription = stringResource(R.string.delete))
+                }
+            }
         }
     }
 }

@@ -336,14 +336,9 @@ fun OriginalLyrics(
     }
 
     // Load translations from database on initial display
-    LaunchedEffect(lines, lyricsEntity, translateLanguage, translateMode) {
+    LaunchedEffect(lines, lyricsEntity) {
         if (lines.isNotEmpty() && lyricsEntity != null) {
-            LyricsTranslationHelper.loadTranslationsFromDatabase(
-                lyrics = lines,
-                lyricsEntity = lyricsEntity,
-                targetLanguage = translateLanguage,
-                mode = translateMode,
-            )
+            LyricsTranslationHelper.loadTranslationsFromDatabase(lines, lyricsEntity)
         }
     }
 
@@ -374,13 +369,6 @@ fun OriginalLyrics(
             } else if (effectiveApiKey.isBlank()) {
                 Toast.makeText(context, aiApiKeyRequiredStr, Toast.LENGTH_SHORT).show()
             }
-        }
-    }
-
-    // Listen for clear translations trigger
-    LaunchedEffect(Unit) {
-        LyricsTranslationHelper.clearTranslationsTrigger.collect {
-            lines.forEach { it.translatedTextFlow.value = null }
         }
     }
 

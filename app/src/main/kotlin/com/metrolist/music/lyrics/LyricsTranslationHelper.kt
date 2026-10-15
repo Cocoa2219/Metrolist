@@ -25,7 +25,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * A helper class that provides AI-powered translation for lyrics.
@@ -40,14 +39,8 @@ object LyricsTranslationHelper {
     private val _manualTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val manualTrigger: SharedFlow<Unit> = _manualTrigger.asSharedFlow()
 
-    private val _clearTranslationsTrigger = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val clearTranslationsTrigger: SharedFlow<Unit> = _clearTranslationsTrigger.asSharedFlow()
-
     private var translationJob: kotlinx.coroutines.Job? = null
     private var isCompositionActive = true
-
-    // Cache translations in memory to avoid redundant API calls during a session
-    private val translationCache = ConcurrentHashMap<String, List<String>>()
 
     // Map of language codes to full names for better AI understanding
     private val LanguageCodeToName = mapOf(
@@ -83,19 +76,6 @@ object LyricsTranslationHelper {
         _manualTrigger.tryEmit(Unit)
     }
 
-    fun triggerClearTranslations() {
-        _clearTranslationsTrigger.tryEmit(Unit)
-        _hasActiveTranslations.value = false
-    }
-
-    fun clearTranslations(lyrics: LyricsEntity): LyricsEntity {
-        return lyrics.copy(
-            translatedLyrics = "",
-            translationLanguage = "",
-            translationMode = ""
-        )
-    }
-
     fun cancelTranslation() {
         translationJob?.cancel()
         if (_status.value is TranslationStatus.Translating) {
@@ -103,47 +83,39 @@ object LyricsTranslationHelper {
         }
     }
 
-    private fun getCacheKey(text: String, mode: String, targetLanguage: String): String {
-        return "${text.hashCode()}_${mode}_${targetLanguage}"
+    /**
+     * Shows the song's selected AI translation, or the translation its lyrics came with when none
+     * is selected or translations are hidden. Menu changes are written to the lyrics row, which
+     * brings them here.
+     */
+    fun loadTranslationsFromDatabase(lyrics: List<LyricsEntry>, lyricsEntity: LyricsEntity?) {
+        val active = lyricsEntity?.storedTranslations()?.active
+        _hasActiveTranslations.value = active != null
+        if (active == null) {
+            lyrics.forEach { it.translatedTextFlow.value = it.sourceTranslation }
+            return
+        }
+        applyLines(lyrics, active.lines)
     }
 
-    fun loadTranslationsFromDatabase(
-        lyrics: List<LyricsEntry>,
-        lyricsEntity: LyricsEntity?,
-        targetLanguage: String,
-        mode: String
+    private fun applyLines(lyrics: List<LyricsEntry>, lines: List<String>) {
+        var index = 0
+        lyrics.forEach { entry ->
+            if (entry.text.isNotBlank()) entry.translatedTextFlow.value = lines.getOrNull(index++) ?: entry.sourceTranslation
+        }
+    }
+
+    private suspend fun updateStored(
+        database: MusicDatabase?,
+        songId: String,
+        update: (StoredTranslations) -> StoredTranslations,
     ) {
-        // Without a stored translation, lines show the translation their source came with, if any.
-        if (lyricsEntity == null || lyricsEntity.translatedLyrics.isNullOrBlank()) {
-            _hasActiveTranslations.value = false
-            lyrics.forEach { it.translatedTextFlow.value = it.sourceTranslation }
-            return
-        }
-        
-        // Only load if language and mode match
-        if (lyricsEntity.translationLanguage != targetLanguage || lyricsEntity.translationMode != mode) {
-            _hasActiveTranslations.value = false
-            lyrics.forEach { it.translatedTextFlow.value = it.sourceTranslation }
-            return
-        }
-        
-        val translatedLines = lyricsEntity.translatedLyrics.split("\n")
-        val nonEmptyEntries = lyrics.filter { it.text.isNotBlank() }
-        
-        if (translatedLines.size >= nonEmptyEntries.size) {
-            var transIndex = 0
-            lyrics.forEach { entry ->
-                if (entry.text.isNotBlank() && transIndex < translatedLines.size) {
-                    entry.translatedTextFlow.value = translatedLines[transIndex]
-                    transIndex++
-                }
-            }
-            
-            // Also cache them
-            val fullText = nonEmptyEntries.joinToString("\n") { it.text }
-            val cacheKey = getCacheKey(fullText, mode, targetLanguage)
-            translationCache[cacheKey] = translatedLines
-            _hasActiveTranslations.value = true
+        if (songId.isBlank() || database == null) return
+        try {
+            val current = database.lyrics(songId).first() ?: return
+            database.query { upsert(current.withTranslations(update(current.storedTranslations()))) }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to save translations")
         }
     }
 
@@ -166,9 +138,6 @@ object LyricsTranslationHelper {
     ) {
         translationJob?.cancel()
         _status.value = TranslationStatus.Translating
-
-        // Clear existing translations to indicate re-translation
-        lyrics.forEach { it.translatedTextFlow.value = null }
 
         translationJob =
             scope.launch(Dispatchers.IO) {
@@ -199,40 +168,14 @@ object LyricsTranslationHelper {
                     // Create text from non-empty lines only
                     val fullText = nonEmptyEntries.joinToString("\n") { it.second.text }
 
-                    // Check cache first
-                    val cacheKey = getCacheKey(fullText, mode, targetLanguage)
-                    val cachedTranslations = translationCache[cacheKey]
-                    if (cachedTranslations != null && cachedTranslations.size >= nonEmptyEntries.size) {
-                        // Use cached translations
-                        nonEmptyEntries.forEachIndexed { idx, (originalIndex, _) ->
-                            if (idx < cachedTranslations.size) {
-                                lyrics[originalIndex].translatedTextFlow.value = cachedTranslations[idx]
-                            }
-                        }
+                    // A translation made earlier in this language and mode is shown again as is.
+                    val stored = database?.lyrics(songId)?.first()?.storedTranslations()
+                    val storedIndex = stored?.indexOf(targetLanguage, mode) ?: -1
+                    if (stored != null && storedIndex >= 0) {
+                        updateStored(database, songId) { it.copy(selected = storedIndex, shown = true) }
+                        applyLines(lyrics, stored.translations[storedIndex].lines)
                         _hasActiveTranslations.value = true
                         _status.value = TranslationStatus.Success
-
-                        // Persist cached translations to DB so loadTranslationsFromDatabase can't
-                        // overwrite them with a stale empty entity (e.g. after an untranslate race).
-                        if (songId.isNotBlank() && database != null) {
-                            try {
-                                val currentLyrics = database.lyrics(songId).first()
-                                if (currentLyrics != null && currentLyrics.translatedLyrics.isNullOrBlank()) {
-                                    database.query {
-                                        upsert(
-                                            currentLyrics.copy(
-                                                translatedLyrics = cachedTranslations.joinToString("\n"),
-                                                translationLanguage = targetLanguage,
-                                                translationMode = mode,
-                                            ),
-                                        )
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Timber.e(e, "Failed to persist cached translations to database")
-                            }
-                        }
-
                         delay(3000)
                         if (_status.value is TranslationStatus.Success && isCompositionActive) {
                             _status.value = TranslationStatus.Idle
@@ -331,28 +274,16 @@ object LyricsTranslationHelper {
                                 return@onSuccess
                             }
 
-                            // Cache the translations
-                            val cacheKey = getCacheKey(fullText, mode, targetLanguage)
-                            translationCache[cacheKey] = translatedLines
-
-                            // Save to database if songId is provided
-                            if (songId.isNotBlank() && database != null) {
-                                try {
-                                    val currentLyrics = database.lyrics(songId).first()
-                                    if (currentLyrics != null) {
-                                        database.query {
-                                            upsert(
-                                                currentLyrics.copy(
-                                                    translatedLyrics = translatedLines.joinToString("\n"),
-                                                    translationLanguage = targetLanguage,
-                                                    translationMode = mode,
-                                                ),
-                                            )
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    Timber.e(e, "Failed to save translated lyrics to database")
-                                }
+                            updateStored(database, songId) {
+                                it.with(
+                                    StoredTranslation(
+                                        language = targetLanguage,
+                                        mode = mode,
+                                        lines = translatedLines,
+                                        model = if (provider == "DeepL") "DeepL" else model,
+                                        createdAt = System.currentTimeMillis(),
+                                    ),
+                                )
                             }
 
                             // Map translations back to original non-empty entries only
