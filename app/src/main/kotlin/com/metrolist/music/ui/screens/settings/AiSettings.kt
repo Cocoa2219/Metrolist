@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
+import com.metrolist.music.LocalDatabase
 import com.metrolist.music.R
 import com.metrolist.music.constants.AiProviderKey
 import com.metrolist.music.constants.AiSystemPromptKey
@@ -178,6 +179,30 @@ fun AiSettings(navController: NavController) {
     var showModelDialog by rememberSaveable { mutableStateOf(false) }
     var showCustomModelInput by rememberSaveable { mutableStateOf(false) }
     var showSystemPromptDialog by rememberSaveable { mutableStateOf(false) }
+    var showClearTranslationsDialog by rememberSaveable { mutableStateOf(false) }
+    val database = LocalDatabase.current
+
+    if (showClearTranslationsDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearTranslationsDialog = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    database.query { clearTranslations() }
+                    showClearTranslationsDialog = false
+                }) {
+                    Text(stringResource(R.string.delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearTranslationsDialog = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+            icon = { Icon(painterResource(R.drawable.clear_all), null) },
+            title = { Text(stringResource(R.string.clear_saved_translations)) },
+            text = { Text(stringResource(R.string.clear_saved_translations_confirm)) },
+        )
+    }
 
     if (showProviderHelpDialog) {
         AlertDialog(
@@ -649,6 +674,14 @@ fun AiSettings(navController: NavController) {
                             title = { Text(stringResource(R.string.ai_target_language)) },
                             description = { Text(LanguageCodeToName[translateLanguage] ?: translateLanguage) },
                             onClick = { showLanguageDialog = true },
+                        ),
+                    )
+                    add(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.clear_all),
+                            title = { Text(stringResource(R.string.clear_saved_translations)) },
+                            description = { Text(stringResource(R.string.clear_saved_translations_desc)) },
+                            onClick = { showClearTranslationsDialog = true },
                         ),
                     )
                 },

@@ -50,68 +50,74 @@ object OpenRouterStreamingService {
             }
 
             try {
-                val body =
-                    buildTranslationRequest(
-                        text = text,
-                        targetLanguage = targetLanguage,
-                        model = model,
-                        mode = mode,
-                        customSystemPrompt = customSystemPrompt,
-                        baseUrl = baseUrl.ifBlank { OpenRouterDefaultBaseUrl },
-                        stream = true,
-                    )
-                val request =
-                    Request
-                        .Builder()
-                        .url(baseUrl.ifBlank { OpenRouterDefaultBaseUrl })
-                        .apply {
-                            if (apiKey.isNotBlank()) addHeader("Authorization", "Bearer ${apiKey.trim()}")
-                        }.addHeader("Content-Type", "application/json")
-                        .addHeader("HTTP-Referer", "https://github.com/MetrolistGroup/Metrolist")
-                        .addHeader("X-Title", "Metrolist")
-                        .post(body.toString().toRequestBody(jsonMediaType))
-                        .build()
-
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        emit(
-                            StreamChunk.Error(
-                                "Translation failed: ${apiErrorMessage(response.body.string(), response.code, response.message)}",
-                            ),
+                var relaxed = false
+                while (true) {
+                    val body =
+                        buildTranslationRequest(
+                            text = text,
+                            targetLanguage = targetLanguage,
+                            model = model,
+                            mode = mode,
+                            customSystemPrompt = customSystemPrompt,
+                            baseUrl = baseUrl.ifBlank { OpenRouterDefaultBaseUrl },
+                            stream = true,
+                            relaxed = relaxed,
                         )
-                        return@flow
-                    }
+                    val request =
+                        Request
+                            .Builder()
+                            .url(baseUrl.ifBlank { OpenRouterDefaultBaseUrl })
+                            .apply {
+                                if (apiKey.isNotBlank()) addHeader("Authorization", "Bearer ${apiKey.trim()}")
+                            }.addHeader("Content-Type", "application/json")
+                            .addHeader("HTTP-Referer", "https://github.com/MetrolistGroup/Metrolist")
+                            .addHeader("X-Title", "Metrolist")
+                            .post(body.toString().toRequestBody(jsonMediaType))
+                            .build()
 
-                    val content = StringBuilder()
-                    response.body.byteStream().bufferedReader().use { reader ->
-                        while (true) {
-                            val line = reader.readLine() ?: break
-                            if (!line.startsWith("data: ")) continue
-                            val data = line.removePrefix("data: ")
-                            if (data == "[DONE]") break
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            val error = apiErrorMessage(response.body.string(), response.code, response.message)
+                            if (!relaxed && isUnsupportedParameters(error)) {
+                                relaxed = true
+                                return@use
+                            }
+                            emit(StreamChunk.Error("Translation failed: $error"))
+                            return@flow
+                        }
 
-                            runCatching {
-                                json
-                                    .parseToJsonElement(data)
-                                    .jsonObject["choices"]
-                                    ?.jsonArray
-                                    ?.getOrNull(0)
-                                    ?.jsonObject
-                                    ?.get("delta")
-                                    ?.jsonObject
-                                    ?.get("content")
-                                    ?.jsonPrimitive
-                                    ?.contentOrNull
-                            }.getOrNull()?.let { chunk ->
-                                content.append(chunk)
-                                emit(StreamChunk.Content(chunk))
+                        val content = StringBuilder()
+                        response.body.byteStream().bufferedReader().use { reader ->
+                            while (true) {
+                                val line = reader.readLine() ?: break
+                                if (!line.startsWith("data: ")) continue
+                                val data = line.removePrefix("data: ")
+                                if (data == "[DONE]") break
+
+                                runCatching {
+                                    json
+                                        .parseToJsonElement(data)
+                                        .jsonObject["choices"]
+                                        ?.jsonArray
+                                        ?.getOrNull(0)
+                                        ?.jsonObject
+                                        ?.get("delta")
+                                        ?.jsonObject
+                                        ?.get("content")
+                                        ?.jsonPrimitive
+                                        ?.contentOrNull
+                                }.getOrNull()?.let { chunk ->
+                                    content.append(chunk)
+                                    emit(StreamChunk.Content(chunk))
+                                }
                             }
                         }
-                    }
 
-                    parseTranslationContent(content.toString(), text.lines().size)
-                        .onSuccess { emit(StreamChunk.Complete(it)) }
-                        .onFailure { emit(StreamChunk.Error(it.message ?: "Parsing failed")) }
+                        parseTranslationContent(content.toString(), text.lines().size)
+                            .onSuccess { emit(StreamChunk.Complete(it)) }
+                            .onFailure { emit(StreamChunk.Error(it.message ?: "Parsing failed")) }
+                        return@flow
+                    }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled

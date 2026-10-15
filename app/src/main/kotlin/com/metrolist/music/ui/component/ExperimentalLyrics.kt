@@ -234,14 +234,9 @@ fun ExperimentalLyrics(
         }
     }
 
-    LaunchedEffect(lines, lyricsEntity, translateLanguage, translateMode) {
+    LaunchedEffect(lines, lyricsEntity) {
         if (lines.isNotEmpty() && lyricsEntity != null) {
-            LyricsTranslationHelper.loadTranslationsFromDatabase(
-                lyrics = lines,
-                lyricsEntity = lyricsEntity,
-                targetLanguage = translateLanguage,
-                mode = translateMode
-            )
+            LyricsTranslationHelper.loadTranslationsFromDatabase(lines, lyricsEntity)
         }
     }
 
@@ -286,11 +281,6 @@ fun ExperimentalLyrics(
         }
     }
 
-    LaunchedEffect(lines) {
-        LyricsTranslationHelper.clearTranslationsTrigger.collectLatest {
-            lines.forEach { it.translatedTextFlow.value = null }
-        }
-    }
 
     val expressiveAccent = when (playerBackground) {
         PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.primary

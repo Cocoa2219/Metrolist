@@ -53,6 +53,7 @@ object OpenRouterService {
         withContext(Dispatchers.IO) {
             if (text.isBlank()) return@withContext Result.failure(Exception("Input text is empty"))
 
+            var relaxed = false
             repeat(maxRetries) { attempt ->
                 try {
                     val body =
@@ -63,6 +64,7 @@ object OpenRouterService {
                             mode = mode,
                             customSystemPrompt = customSystemPrompt,
                             baseUrl = baseUrl.ifBlank { OpenRouterDefaultBaseUrl },
+                            relaxed = relaxed,
                         )
                     val request =
                         Request
@@ -80,6 +82,10 @@ object OpenRouterService {
                         val responseBody = response.body.string()
                         if (!response.isSuccessful) {
                             val error = apiErrorMessage(responseBody, response.code, response.message)
+                            if (!relaxed && isUnsupportedParameters(error)) {
+                                relaxed = true
+                                throw Exception(error)
+                            }
                             if (response.code >= 500) throw Exception(error)
                             return@withContext Result.failure(Exception("Translation failed: $error"))
                         }
@@ -119,6 +125,7 @@ internal fun buildTranslationRequest(
     customSystemPrompt: String,
     baseUrl: String = OpenRouterDefaultBaseUrl,
     stream: Boolean = false,
+    relaxed: Boolean = false,
 ): JsonObject {
     val lineCount = text.lines().size
     val systemPrompt =
@@ -219,7 +226,7 @@ Output MUST be a JSON object {"lines": [...]} with EXACTLY $lineCount strings.""
         if (model.isNotBlank()) put("model", model)
         // OpenAI's GPT-5 models reject max_tokens and non-default temperatures, and reasoning tokens
         // count against any output cap, so let them use their defaults.
-        if (!baseUrl.contains("api.openai.com")) {
+        if (!relaxed && !baseUrl.contains("api.openai.com")) {
             put("temperature", 0.3)
             put("max_tokens", lineCount * 100)
         }
@@ -272,7 +279,7 @@ Output MUST be a JSON object {"lines": [...]} with EXACTLY $lineCount strings.""
         )
         // OpenRouter-only routing preference; fail instead of silently degrading to
         // unvalidated JSON on endpoints without structured-output support
-        if (baseUrl.contains("openrouter.ai")) {
+        if (!relaxed && baseUrl.contains("openrouter.ai")) {
             put(
                 "provider",
                 buildJsonObject {
@@ -283,6 +290,13 @@ Output MUST be a JSON object {"lines": [...]} with EXACTLY $lineCount strings.""
         if (stream) put("stream", true)
     }
 }
+
+/**
+ * OpenRouter's answer when no provider of the model takes every parameter sent, e.g. a Claude
+ * model that rejects temperature. The request is then retried without the optional ones.
+ */
+internal fun isUnsupportedParameters(error: String) =
+    error.contains("No endpoints found that can handle the requested parameters", ignoreCase = true)
 
 internal fun parseTranslationContent(
     content: String,

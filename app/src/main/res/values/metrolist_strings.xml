@@ -1041,4 +1041,13 @@
     <string name="share_lyrics_translation">Translation</string>
     <string name="save_to_gallery">Save to gallery</string>
     <string name="saved_to_gallery">Saved to gallery</string>
+    <string name="lyrics_sync_word">Word</string>
+    <string name="lyrics_sync_line">Line</string>
+    <string name="lyrics_sync_none">Plain</string>
+    <string name="saved_translations">Saved translations</string>
+    <string name="saved_translations_off">Off</string>
+    <string name="reset_translations">Delete all</string>
+    <string name="clear_saved_translations">Clear saved translations</string>
+    <string name="clear_saved_translations_desc">Deletes the AI translations saved for every song</string>
+    <string name="clear_saved_translations_confirm">Delete the AI translations saved for every song? Translating again will make new requests.</string>
 </resources>
