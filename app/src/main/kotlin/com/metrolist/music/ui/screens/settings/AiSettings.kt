@@ -676,15 +676,21 @@ fun AiSettings(navController: NavController) {
                             onClick = { showLanguageDialog = true },
                         ),
                     )
-                    add(
-                        Material3SettingsItem(
-                            icon = painterResource(R.drawable.clear_all),
-                            title = { Text(stringResource(R.string.clear_saved_translations)) },
-                            description = { Text(stringResource(R.string.clear_saved_translations_desc)) },
-                            onClick = { showClearTranslationsDialog = true },
-                        ),
-                    )
                 },
+        )
+
+        Spacer(modifier = Modifier.height(27.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.saved_translations),
+            items = listOf(
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.clear_all),
+                    title = { Text(stringResource(R.string.clear_saved_translations)) },
+                    description = { Text(stringResource(R.string.clear_saved_translations_desc)) },
+                    onClick = { showClearTranslationsDialog = true },
+                ),
+            ),
         )
 
         Spacer(modifier = Modifier.height(16.dp))
