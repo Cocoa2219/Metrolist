@@ -14,7 +14,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.metrolist.music.R
 import com.metrolist.music.constants.AudioQuality
-import com.metrolist.music.utils.InnerTubeXPlayer
+import com.metrolist.extraction.InnerTubeXPlayer
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import kotlinx.coroutines.CoroutineScope
@@ -110,8 +110,7 @@ class WrappedAudioService(
             val playbackData = withContext(Dispatchers.IO) {
                 InnerTubeXPlayer.playerResponseForPlayback(
                     videoId = songId,
-                    audioQuality = audioQuality,
-                    connectivityManager = connectivityManager,
+                    audioQuality = audioQuality.toInnerTubeX(connectivityManager),
                 ).getOrNull()
             }
             val streamUrl = playbackData?.streamUrl

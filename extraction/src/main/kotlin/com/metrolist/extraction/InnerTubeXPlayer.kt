@@ -1,7 +1,6 @@
-package com.metrolist.music.utils
+package com.metrolist.extraction
 
 import android.content.Context
-import android.net.ConnectivityManager
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.Thumbnail
 import com.metrolist.innertube.models.Thumbnails
@@ -15,23 +14,18 @@ import com.metrolist.innertubex.extraction.AudioQuality as InnerTubeXAudioQualit
 import com.metrolist.innertubex.extraction.ContentHints
 import com.metrolist.innertubex.extraction.ExtractedStream
 import com.metrolist.innertubex.extraction.InnerTubeExtractor
-import com.metrolist.innertubex.extraction.PoTokenResult
 import com.metrolist.innertubex.extraction.StreamResolveException
 import com.metrolist.innertubex.extraction.TokenProvider
-import com.metrolist.innertubex.extraction.TokenProviderCapabilities
 import com.metrolist.innertubex.extraction.YtConfigParser
 import com.metrolist.innertubex.extraction.YtConfigParserImpl
 import com.metrolist.innertubex.extraction.generateClientPlaybackNonce
-import com.metrolist.innertubex.extraction.strategy.PoTokenProviderKind
-import com.metrolist.music.constants.AudioQuality
-import com.metrolist.music.utils.potoken.PoTokenGenerator
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import timber.log.Timber
 import kotlin.time.Clock
 
-/** The sole stream extraction entry point for the Android app. */
+/** The sole stream extraction entry point for the phone and watch apps. */
 object InnerTubeXPlayer {
     private const val TAG = "InnerTubeXPlayer"
     private const val STREAM_CLIENT_FAILURE_TTL_MS = 5 * 60 * 1000L
@@ -41,14 +35,22 @@ object InnerTubeXPlayer {
     private var applicationContext: Context? = null
 
     @Volatile
+    private var tokenProvider: TokenProvider? = null
+
+    @Volatile
     private var currentBundle: ExtractionBundle? = null
 
     private val bundleMutex = Mutex()
     private val streamClientFailures = java.util.concurrent.ConcurrentHashMap<String, FailedStreamClients>()
 
+    /** [tokenProvider] supplies PoTokens; the watch passes one with no providers since it has no WebView. */
     @Synchronized
-    fun initialize(context: Context) {
+    fun initialize(
+        context: Context,
+        tokenProvider: TokenProvider,
+    ) {
         if (applicationContext == null) applicationContext = context.applicationContext
+        if (this.tokenProvider == null) this.tokenProvider = tokenProvider
     }
 
     suspend fun prewarm() = bundle().extractor.prewarm()
@@ -56,8 +58,7 @@ object InnerTubeXPlayer {
     suspend fun playerResponseForPlayback(
         videoId: String,
         playlistId: String? = null,
-        audioQuality: AudioQuality,
-        connectivityManager: ConnectivityManager,
+        audioQuality: InnerTubeXAudioQuality,
         contentHints: ContentHints = ContentHints(),
         allowBoundedRange: Boolean = true,
     ): Result<PlaybackData> =
@@ -80,7 +81,7 @@ object InnerTubeXPlayer {
                         videoId = videoId,
                         hints = hints,
                         excludedClients = excludedClients,
-                        audioQuality = audioQuality.toInnerTubeX(connectivityManager),
+                        audioQuality = audioQuality,
                         clientPlaybackNonce = generateClientPlaybackNonce(),
                     ),
                 ) { "InnerTubeX returned no playable stream" }
@@ -101,7 +102,7 @@ object InnerTubeXPlayer {
             Result.failure(error)
         }
 
-    internal fun markStreamClientFailed(
+    fun markStreamClientFailed(
         videoId: String,
         clientName: String,
         nowMs: Long = System.currentTimeMillis(),
@@ -163,7 +164,7 @@ object InnerTubeXPlayer {
                         ).withEmbeddedConfigFallback(),
                     cipherService = cipherService,
                     innerTube = latestTransport.innerTube,
-                    tokenProvider = tokenProvider,
+                    tokenProvider = requireNotNull(tokenProvider) { "InnerTubeXPlayer is not initialized" },
                     logger = logger,
                 )
             ExtractionBundle(latestTransport.generation, cipherService, extractor).also { currentBundle = it }
@@ -173,36 +174,6 @@ object InnerTubeXPlayer {
     private val configRepository: PlayerConfigRepository by lazy {
         AndroidPlayerConfigRepository(requireNotNull(applicationContext) { "InnerTubeXPlayer is not initialized" })
     }
-
-    private val poTokenGenerator: PoTokenGenerator by lazy {
-        PoTokenGenerator(requireNotNull(applicationContext) { "InnerTubeXPlayer is not initialized" })
-    }
-
-    private val tokenProvider =
-        object : TokenProvider {
-            override val capabilities =
-                TokenProviderCapabilities(
-                    providers = setOf(PoTokenProviderKind.WEB_BOTGUARD),
-                    usesWebView = true,
-                )
-
-            override suspend fun getPoToken(
-                videoId: String,
-                visitorData: String,
-                cookie: String?,
-            ): PoTokenResult? =
-                poTokenGenerator.getWebClientPoToken(videoId, visitorData)?.let { token ->
-                    PoTokenResult(
-                        playerRequestToken = token.playerRequestPoToken,
-                        streamingDataToken = token.streamingDataPoToken,
-                        visitorData = visitorData,
-                    )
-                }
-
-            override suspend fun close() {
-                poTokenGenerator.close()
-            }
-        }
 
     private val logger =
         InnerTubeLogger { event ->
@@ -276,18 +247,6 @@ object InnerTubeXPlayer {
                     this@withEmbeddedConfigFallback.fetchConfig(videoId, useLoginCookies)
                 } catch (_: IllegalStateException) {
                     this@withEmbeddedConfigFallback.fetchEmbeddedConfig(videoId, useLoginCookies = false)
-                }
-        }
-
-    private fun AudioQuality.toInnerTubeX(connectivityManager: ConnectivityManager): InnerTubeXAudioQuality =
-        when (this) {
-            AudioQuality.HIGH -> InnerTubeXAudioQuality.HIGH
-            AudioQuality.LOW -> InnerTubeXAudioQuality.LOW
-            AudioQuality.AUTO ->
-                if (connectivityManager.isActiveNetworkMetered) {
-                    InnerTubeXAudioQuality.LOW
-                } else {
-                    InnerTubeXAudioQuality.AUTO
                 }
         }
 

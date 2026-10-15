@@ -35,8 +35,9 @@ import com.metrolist.music.lyrics.LyricsPhonetics
 import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.utils.CrashHandler
 import com.metrolist.music.utils.ArtistNameAliases
-import com.metrolist.music.utils.InnerTubeXPlayer
+import com.metrolist.extraction.InnerTubeXPlayer
 import com.metrolist.music.utils.YouTubeThumbnailInterceptor
+import com.metrolist.music.utils.potoken.PoTokenGenerator
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.safeDataStoreEdit
 import com.metrolist.music.utils.reportException
@@ -91,7 +92,7 @@ class App :
 
         // Plant logging before extraction services initialize.
         Timber.plant(Timber.DebugTree())
-        InnerTubeXPlayer.initialize(this)
+        InnerTubeXPlayer.initialize(this, PoTokenGenerator(this))
         LyricsPhonetics.initialize(this)
 
         // Pre-read Coil cache size on background to avoid runBlocking in newImageLoader

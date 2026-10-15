@@ -37,7 +37,7 @@ import com.metrolist.music.di.DownloadCache
 import com.metrolist.music.di.PlayerCache
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.models.toMediaMetadata
-import com.metrolist.music.utils.InnerTubeXPlayer
+import com.metrolist.extraction.InnerTubeXPlayer
 import com.metrolist.music.utils.enumPreference
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -119,8 +119,7 @@ constructor(
                 val song = database.songEntity(mediaId)
                 InnerTubeXPlayer.playerResponseForPlayback(
                     mediaId,
-                    audioQuality = audioQuality,
-                    connectivityManager = connectivityManager,
+                    audioQuality = audioQuality.toInnerTubeX(connectivityManager),
                     contentHints = ContentHints(
                         isExplicit = song?.explicit,
                         isUploaded = song?.isUploaded,

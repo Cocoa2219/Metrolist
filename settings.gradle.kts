@@ -40,5 +40,7 @@ dependencyResolutionManagement {
 rootProject.name = "Metrolist"
 include(":app")
 include(":innertube")
+include(":extraction")
 include(":accompanist-lyrics-ui")
+include(":wear")
 include(":wearprobe")

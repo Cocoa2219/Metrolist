@@ -2,6 +2,9 @@ package com.metrolist.music.utils.potoken
 
 import android.content.Context
 import android.webkit.CookieManager
+import com.metrolist.innertubex.extraction.TokenProvider
+import com.metrolist.innertubex.extraction.TokenProviderCapabilities
+import com.metrolist.innertubex.extraction.strategy.PoTokenProviderKind
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -11,8 +14,27 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import timber.log.Timber
 
-class PoTokenGenerator(context: Context) {
+class PoTokenGenerator(context: Context) : TokenProvider {
     private val TAG = "PoTokenGenerator"
+
+    override val capabilities =
+        TokenProviderCapabilities(
+            providers = setOf(PoTokenProviderKind.WEB_BOTGUARD),
+            usesWebView = true,
+        )
+
+    override suspend fun getPoToken(
+        videoId: String,
+        visitorData: String,
+        cookie: String?,
+    ): com.metrolist.innertubex.extraction.PoTokenResult? =
+        getWebClientPoToken(videoId, visitorData)?.let { token ->
+            com.metrolist.innertubex.extraction.PoTokenResult(
+                playerRequestToken = token.playerRequestPoToken,
+                streamingDataToken = token.streamingDataPoToken,
+                visitorData = visitorData,
+            )
+        }
     private val applicationContext = context.applicationContext
 
     private val webViewSupported by lazy { runCatching { CookieManager.getInstance() }.isSuccess }
@@ -54,7 +76,7 @@ class PoTokenGenerator(context: Context) {
         }
     }
 
-    suspend fun close() {
+    override suspend fun close() {
         clearGenerator()
     }
 

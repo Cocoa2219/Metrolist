@@ -220,7 +220,7 @@ import com.metrolist.music.utils.ScrobbleManager
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.getArtistSeparator
 import com.metrolist.music.utils.joinToArtistString
-import com.metrolist.music.utils.InnerTubeXPlayer
+import com.metrolist.extraction.InnerTubeXPlayer
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import com.metrolist.music.utils.reportException
@@ -3832,8 +3832,7 @@ class MusicService :
                     val song = database.songEntity(mediaId)
                     InnerTubeXPlayer.playerResponseForPlayback(
                         mediaId,
-                        audioQuality = audioQuality,
-                        connectivityManager = connectivityManager,
+                        audioQuality = audioQuality.toInnerTubeX(connectivityManager),
                         contentHints = ContentHints(
                             isExplicit = song?.explicit,
                             isUploaded = song?.isUploaded,
@@ -4775,8 +4774,7 @@ class MusicService :
                     InnerTubeXPlayer
                         .playerResponseForPlayback(
                             videoId = mediaId,
-                            audioQuality = audioQuality,
-                            connectivityManager = connectivityManager,
+                            audioQuality = audioQuality.toInnerTubeX(connectivityManager),
                             contentHints = ContentHints(
                                 isExplicit = song?.explicit,
                                 isUploaded = song?.isUploaded,

@@ -1,4 +1,4 @@
-package com.metrolist.music.utils
+package com.metrolist.extraction
 
 import com.metrolist.innertubex.extraction.PlayerConfig
 import com.metrolist.innertubex.extraction.YtConfigParser

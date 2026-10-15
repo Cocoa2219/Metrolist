@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Metrolist</string>
+    <string name="account_checking">Checking account…</string>
+    <string name="account_signed_in">Signed in as %1$s</string>
+    <string name="account_signed_out">Not signed in</string>
+    <string name="account_signed_out_hint">Push cookies.txt over adb, then reopen the app.</string>
+    <string name="account_failed">Sign-in failed</string>
+    <string name="account_failed_hint">Push a fresh cookies.txt over adb, then reopen the app.</string>
+</resources>

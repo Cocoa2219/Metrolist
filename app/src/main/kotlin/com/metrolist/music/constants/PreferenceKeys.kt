@@ -5,11 +5,13 @@
 
 package com.metrolist.music.constants
 
+import android.net.ConnectivityManager
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import com.metrolist.innertubex.extraction.AudioQuality as InnerTubeXAudioQuality
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 
@@ -117,6 +119,19 @@ enum class AudioQuality {
     AUTO,
     LOW,
     HIGH,
+    ;
+
+    fun toInnerTubeX(connectivityManager: ConnectivityManager): InnerTubeXAudioQuality =
+        when (this) {
+            HIGH -> InnerTubeXAudioQuality.HIGH
+            LOW -> InnerTubeXAudioQuality.LOW
+            AUTO ->
+                if (connectivityManager.isActiveNetworkMetered) {
+                    InnerTubeXAudioQuality.LOW
+                } else {
+                    InnerTubeXAudioQuality.AUTO
+                }
+        }
 }
 
 val AudioOffload = booleanPreferencesKey("enableOffload")

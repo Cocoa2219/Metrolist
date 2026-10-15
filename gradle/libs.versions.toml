@@ -23,6 +23,7 @@ coroutinesGuava = "1.11.0"
 activity = "1.13.0"
 hiltNavigation = "1.4.0"
 datastore = "1.2.1"
+wearCompose = "1.7.0"
 composeReorderable = "3.1.0"
 shimmer = "1.5.0"
 gazeCapsule = "2.1.1-patch2"
@@ -57,6 +58,8 @@ viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose",
 lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
 
 material3 = { module = "androidx.compose.material3:material3", version.ref = "material3" }
+wear-compose-material3 = { module = "androidx.wear.compose:compose-material3", version.ref = "wearCompose" }
+wear-compose-foundation = { module = "androidx.wear.compose:compose-foundation", version.ref = "wearCompose" }
 
 materialKolor = { module = "com.materialkolor:material-kolor", version.ref = "materialKolor" }
 
