@@ -66,12 +66,13 @@ object TtmlLyrics {
         startTime = start / 1000.0,
         endTime = end / 1000.0,
         hasTrailingSpace = content.lastOrNull()?.isWhitespace() == true,
-        phonetic = phonetic?.takeIf { it.isNotBlank() },
+        // Some sources "transliterate" lines of another language as the text itself.
+        phonetic = phonetic?.takeIf { it.isNotBlank() && it.trim() != content.trim() },
     )
 
     private fun joinedPhonetic(syllables: List<KaraokeSyllable>): String? = buildString {
         for (syllable in syllables) {
-            val caption = syllable.phonetic?.takeIf { it.isNotBlank() } ?: continue
+            val caption = syllable.phonetic?.takeIf { it.isNotBlank() && it.trim() != syllable.content.trim() } ?: continue
             if (isNotEmpty()) append(syllable.phoneticSeparatorBefore.ifEmpty { " " })
             append(caption)
         }
@@ -90,7 +91,7 @@ object TtmlLyrics {
             agent = agent,
             isBackground = isBackground,
             sourceTranslation = sourceTranslation,
-            sourceRomanization = romanization?.takeIf { it.isNotBlank() },
+            sourceRomanization = romanization?.takeIf { it.isNotBlank() && it.trim() != text },
         )
     }
 }
