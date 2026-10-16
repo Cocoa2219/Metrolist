@@ -1,3 +1,4 @@
+// Modified by Metrolist: captions sweep along their own width.
 package com.mocharealm.accompanist.lyrics.ui.preparation
 
 import androidx.compose.ui.geometry.Rect
@@ -24,4 +25,9 @@ internal constructor(
     val phoneticSpacingBefore: Float = 0f,
     /** Actual row advance, including spacing reserved between pronunciation captions. */
     val width: Float = runs.sumOf { run -> run.groups.sumOf { it.width.toDouble() } }.toFloat(),
+    /** Captions keep their words' timing but sweep across their own, often wider, extent. */
+    internal val captionSweepStarts: IntArray = IntArray(0),
+    internal val captionSweepEnds: IntArray = IntArray(0),
+    internal val captionSweepLeft: FloatArray = FloatArray(0),
+    internal val captionSweepRight: FloatArray = FloatArray(0),
 )
