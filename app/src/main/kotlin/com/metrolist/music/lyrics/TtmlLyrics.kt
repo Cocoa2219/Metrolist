@@ -66,16 +66,23 @@ object TtmlLyrics {
         startTime = start / 1000.0,
         endTime = end / 1000.0,
         hasTrailingSpace = content.lastOrNull()?.isWhitespace() == true,
-        phonetic = phonetic?.takeIf { it.isNotBlank() },
+        phonetic = phonetic?.takeIf { it.isNotBlank() && !sameText(it, content) },
     )
 
     private fun joinedPhonetic(syllables: List<KaraokeSyllable>): String? = buildString {
         for (syllable in syllables) {
-            val caption = syllable.phonetic?.takeIf { it.isNotBlank() } ?: continue
+            val caption = syllable.phonetic?.takeIf { it.isNotBlank() && !sameText(it, syllable.content) } ?: continue
             if (isNotEmpty()) append(syllable.phoneticSeparatorBefore.ifEmpty { " " })
             append(caption)
         }
     }.ifBlank { null }
+
+    /**
+     * Sources "transliterate" lines that need none (English, or Korean in a Japanese song) as the
+     * text itself; such captions are dropped, so Metrolist romanizes those lines or leaves them.
+     */
+    private fun sameText(caption: String, text: String) =
+        caption.filterNot(Char::isWhitespace) == text.filterNot(Char::isWhitespace)
 
     private fun entry(
         start: Int, text: String, words: List<WordTimestamp>?, agent: String, isBackground: Boolean,
@@ -90,7 +97,7 @@ object TtmlLyrics {
             agent = agent,
             isBackground = isBackground,
             sourceTranslation = sourceTranslation,
-            sourceRomanization = romanization?.takeIf { it.isNotBlank() },
+            sourceRomanization = romanization?.takeIf { it.isNotBlank() && !sameText(it, text) },
         )
     }
 }
