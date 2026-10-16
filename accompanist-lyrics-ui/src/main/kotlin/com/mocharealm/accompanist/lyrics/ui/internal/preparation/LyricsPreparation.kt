@@ -344,6 +344,10 @@ private fun prepareLine(
         val ends = mutableListOf<Int>()
         val lefts = mutableListOf<Float>()
         val rights = mutableListOf<Float>()
+        val captionStarts = mutableListOf<Int>()
+        val captionEnds = mutableListOf<Int>()
+        val captionLefts = mutableListOf<Float>()
+        val captionRights = mutableListOf<Float>()
         var start = Int.MAX_VALUE
         var end = Int.MIN_VALUE
         var sweepEnd = Int.MIN_VALUE
@@ -381,6 +385,13 @@ private fun prepareLine(
                             unitX,
                         unit.text.baseline + descent + phoneticGap,
                     )
+                unit.phonetic?.let { caption ->
+                    val captionLeft = unitX + unit.phoneticPosition.x
+                    captionStarts.add(unit.text.start)
+                    captionEnds.add(unit.text.end)
+                    captionLefts.add(captionLeft)
+                    captionRights.add(captionLeft + caption.size.width)
+                }
                 unit.animationStart =
                     if (unitEffects && group.units.size > 1)
                         group.start +
@@ -458,6 +469,7 @@ private fun prepareLine(
         }
         // Timing arrays are an index into physical geometry; hierarchy remains intact for drawing.
         val order = starts.indices.sortedBy { starts[it] }
+        val captionOrder = captionStarts.indices.sortedBy { captionStarts[it] }
         val mergedWindows = mutableListOf<RenderWindow>()
         for (window in windows.sortedBy { it.start }) {
             val previous = mergedWindows.lastOrNull()
@@ -492,6 +504,10 @@ private fun prepareLine(
                 sweepFadeWidth,
                 previousPhoneticSpacing,
                 width = rowWidth,
+                captionSweepStarts = IntArray(captionOrder.size) { captionStarts[captionOrder[it]] },
+                captionSweepEnds = IntArray(captionOrder.size) { captionEnds[captionOrder[it]] },
+                captionSweepLeft = FloatArray(captionOrder.size) { captionLefts[captionOrder[it]] },
+                captionSweepRight = FloatArray(captionOrder.size) { captionRights[captionOrder[it]] },
             )
         )
         previousPhoneticSpacing = if (hasPhonetics) wrappedRowSpacing else 0f
