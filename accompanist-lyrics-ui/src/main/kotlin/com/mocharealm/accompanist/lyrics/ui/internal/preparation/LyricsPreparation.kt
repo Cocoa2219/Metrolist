@@ -1,7 +1,7 @@
 // Modified by Metrolist: keeps a space between adjacent word captions, starts captions of
 // end-aligned words after their leading space, moves a caption that would be split across
-// wrapped rows to a line caption, records where words sit without captions, and times each
-// caption by the source syllables it reads.
+// wrapped rows to a line caption, records where words sit without captions, times each
+// caption by the source syllables it reads, and splits words only when wider than the full width.
 package com.mocharealm.accompanist.lyrics.ui.internal.preparation
 
 import com.mocharealm.accompanist.lyrics.ui.internal.text.*
@@ -210,11 +210,13 @@ private fun prepareLine(
                 run.profile,
                 buildList {
                     for (source in run.groups) {
+                        // Duet lines wrap at a narrower layout width, but a word that still fits
+                        // the full width overflows it as its own row instead of being split.
                         val fragments =
                             run.profile.wrap(
                                 run.profile.prepare(measuredLine, source, measurer, style),
                                 measurer,
-                                layoutWidth,
+                                width,
                             )
                         // A caption joined onto a group's first unit cannot follow its text onto
                         // later rows.
@@ -771,10 +773,14 @@ private fun appendBalancedRows(
         widths[index - start + 1] =
             widths[index - start] + atoms[index].phoneticGapBefore + atoms[index].group.width
     }
+    // A word wider than a duet line's layout width, though within the full width, takes a row
+    // of its own; counting it as exactly full keeps the rest of the line balanced.
+    fun rowWidth(from: Int, to: Int, measured: Float) =
+        if (to - from == 1) minOf(measured, maxWidth) else measured
     val selected =
         balancedLineBreaks(end - start, candidates, maxWidth) { from, to ->
             // A caption gap belongs between words, never before the first word of a new row.
-            widths[to] - widths[from] - atoms[start + from].phoneticGapBefore
+            rowWidth(from, to, widths[to] - widths[from] - atoms[start + from].phoneticGapBefore)
         }
     if (selected != null) {
         var rowStart = start
@@ -788,7 +794,7 @@ private fun appendBalancedRows(
         }
         return selected ==
             balancedLineBreaks(end - start, candidates, maxWidth) { from, to ->
-                tightWidths[to] - tightWidths[from]
+                rowWidth(from, to, tightWidths[to] - tightWidths[from])
             }
     }
 
