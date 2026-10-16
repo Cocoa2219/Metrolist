@@ -344,11 +344,6 @@ private fun prepareLine(
         val ends = mutableListOf<Int>()
         val lefts = mutableListOf<Float>()
         val rights = mutableListOf<Float>()
-        val captionSources = mutableListOf<Int>()
-        val captionStarts = mutableListOf<Int>()
-        val captionEnds = mutableListOf<Int>()
-        val captionLefts = mutableListOf<Float>()
-        val captionRights = mutableListOf<Float>()
         var start = Int.MAX_VALUE
         var end = Int.MIN_VALUE
         var sweepEnd = Int.MIN_VALUE
@@ -386,14 +381,6 @@ private fun prepareLine(
                             unitX,
                         unit.text.baseline + descent + phoneticGap,
                     )
-                unit.phonetic?.let { caption ->
-                    val captionLeft = unitX + unit.phoneticPosition.x
-                    captionSources.add(unit.text.sourceStart)
-                    captionStarts.add(unit.text.start)
-                    captionEnds.add(unit.text.end)
-                    captionLefts.add(captionLeft)
-                    captionRights.add(captionLeft + caption.size.width)
-                }
                 unit.animationStart =
                     if (unitEffects && group.units.size > 1)
                         group.start +
@@ -471,16 +458,6 @@ private fun prepareLine(
         }
         // Timing arrays are an index into physical geometry; hierarchy remains intact for drawing.
         val order = starts.indices.sortedBy { starts[it] }
-        // A caption sits on the first piece of its syllable, which may be split by character or
-        // script; it sweeps for as long as the whole syllable is sung on this row.
-        val syllableEnds = HashMap<Int, Int>()
-        for (run in rowRuns) for (group in run.groups) for (unit in group.units) {
-            syllableEnds.merge(unit.text.sourceStart, unit.text.end, ::maxOf)
-        }
-        for (index in captionEnds.indices) {
-            captionEnds[index] = maxOf(captionEnds[index], syllableEnds[captionSources[index]] ?: 0)
-        }
-        val captionOrder = captionStarts.indices.sortedBy { captionStarts[it] }
         val mergedWindows = mutableListOf<RenderWindow>()
         for (window in windows.sortedBy { it.start }) {
             val previous = mergedWindows.lastOrNull()
@@ -515,10 +492,6 @@ private fun prepareLine(
                 sweepFadeWidth,
                 previousPhoneticSpacing,
                 width = rowWidth,
-                captionSweepStarts = IntArray(captionOrder.size) { captionStarts[captionOrder[it]] },
-                captionSweepEnds = IntArray(captionOrder.size) { captionEnds[captionOrder[it]] },
-                captionSweepLeft = FloatArray(captionOrder.size) { captionLefts[captionOrder[it]] },
-                captionSweepRight = FloatArray(captionOrder.size) { captionRights[captionOrder[it]] },
             )
         )
         previousPhoneticSpacing = if (hasPhonetics) wrappedRowSpacing else 0f
@@ -742,12 +715,6 @@ private fun appendBalancedRows(
     }
     val candidates = mutableListOf<LineBreakCandidate>()
     for (offset in 1 until end - start) {
-        // A syllable split by script keeps its caption on the first part; breaking inside it
-        // would leave the rest of the syllable on the next row without its reading.
-        val nextSource = atoms[start + offset].group.units.firstOrNull()?.text?.sourceStart
-        if (nextSource != null &&
-            atoms[start + offset - 1].group.units.any { it.text.sourceStart == nextSource && it.phonetic != null }
-        ) continue
         val textOffset = atomOffsets[offset]
         val nextText = atoms[start + offset].sourceText
         var whitespaceEnd = textOffset
