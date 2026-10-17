@@ -1,5 +1,6 @@
 // Modified by Metrolist: adds captionInset, so captions start at the word rather than its leading space,
-// and spacingShift, so words can slide to their caption-free positions.
+// spacingShift, so words can slide to their caption-free positions, and caption credit, so a
+// caption shared with the next groups of its syllable widens only the whole.
 package com.mocharealm.accompanist.lyrics.ui.preparation
 
 import androidx.compose.ui.geometry.Offset
@@ -21,7 +22,11 @@ internal constructor(
         else units.sumOf { it.width.toDouble() }.toFloat()
     internal val phoneticWidth =
         units.maxOfOrNull { it.phonetic?.size?.width?.toFloat() ?: 0f } ?: 0f
-    val width = maxOf(textWidth, phoneticWidth)
+    /** Text width of the following groups of this group's syllable (2 + 人), which its caption spans. */
+    internal var captionCredit = 0f
+    /** The group whose caption this one shares, when it continues that group's syllable. */
+    internal var captionOwner: PreparedGroup? = null
+    val width: Float get() = maxOf(textWidth, phoneticWidth - captionCredit)
     /** How far captions start after the group's left edge, past its leading whitespace. */
     internal var captionInset = 0f
     /** Horizontal move to where this group sits once captions are removed, when rows allow it. */
