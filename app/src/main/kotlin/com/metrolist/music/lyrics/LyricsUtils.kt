@@ -1272,6 +1272,9 @@ object LyricsUtils {
         romanizeCyrillicByLine: Boolean,
         preferred: String? = null,
     ): String? {
+        // Detection reads the whole song, so an English line of a Japanese song would otherwise
+        // come back from the Japanese romanizer as a near copy of itself.
+        if (!needsRomanization(line)) return null
         val detectionText = if (romanizeCyrillicByLine) line else text
         return when {
             "Japanese" in enabledLanguages && isJapanese(detectionText) && !isChinese(detectionText) -> preferred ?: romanizeJapanese(line)
@@ -1287,6 +1290,19 @@ object LyricsUtils {
             "Macedonian" in enabledLanguages && isMacedonian(detectionText) -> preferred ?: romanizeCyrillic(line, "Macedonian")
             else -> null
         }
+    }
+
+    /** Whether [text] has letters outside the Latin script, which romanization would change. */
+    fun needsRomanization(text: String): Boolean {
+        var index = 0
+        while (index < text.length) {
+            val codePoint = text.codePointAt(index)
+            if (Character.isLetter(codePoint) &&
+                Character.UnicodeScript.of(codePoint) != Character.UnicodeScript.LATIN
+            ) return true
+            index += Character.charCount(codePoint)
+        }
+        return false
     }
 
     private fun isCyrillicVowel(char: Char): Boolean {

@@ -26,7 +26,6 @@ import com.mocharealm.accompanist.lyrics.phonetics.LanguageResult
 import com.mocharealm.accompanist.lyrics.phonetics.PackLoader
 import com.mocharealm.accompanist.lyrics.phonetics.ParseOptions
 import com.mocharealm.accompanist.lyrics.phonetics.ParseWorkspace
-import com.mocharealm.accompanist.lyrics.phonetics.PassthroughStyle
 import com.mocharealm.accompanist.lyrics.phonetics.PhoneticEngine
 import com.mocharealm.accompanist.lyrics.phonetics.PhoneticProfile
 import com.mocharealm.accompanist.lyrics.phonetics.PhoneticSpan
@@ -78,9 +77,8 @@ object LyricsPhonetics : PhoneticProvider {
     /** Line captions keep Latin words and punctuation, since they may replace the original line. */
     private val lineFormatter = AsciiFormatter(FormatOptions(), listOf(HangulFormatter))
 
-    /** Syllable captions leave Latin syllables uncaptioned. */
-    private val syllableFormatter =
-        AsciiFormatter(FormatOptions(passthrough = PassthroughStyle.OMIT), listOf(HangulFormatter))
+    /** Syllable captions keep Latin words too, so a mixed line is romanized throughout. */
+    private val syllableFormatter = lineFormatter
 
     fun chineseTag(): String = chineseReading.languageTag
 

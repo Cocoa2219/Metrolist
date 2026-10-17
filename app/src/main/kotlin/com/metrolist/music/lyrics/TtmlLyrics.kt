@@ -54,33 +54,56 @@ object TtmlLyrics {
     }
 
     private fun KaraokeLine.toEntry(agent: String, isBackground: Boolean): LyricsEntry {
-        val words = syllables.map { it.toWord() }
-        return entry(
-            start, words.joinToString("") { word -> if (word.hasTrailingSpace) "${word.text} " else word.text }.trim(),
-            words, agent, isBackground, translation, phonetic ?: joinedPhonetic(syllables),
-        )
+        val captions = captions(syllables)
+        val words = syllables.mapIndexed { index, syllable -> syllable.toWord(captions[index]) }
+        val text = words.joinToString("") { word -> if (word.hasTrailingSpace) "${word.text} " else word.text }.trim()
+        val romanization = phonetic?.takeIf { LyricsUtils.needsRomanization(text) } ?: joinedCaption(syllables, captions)
+        return entry(start, text, words, agent, isBackground, translation, romanization)
     }
 
-    private fun KaraokeSyllable.toWord() = WordTimestamp(
+    private fun KaraokeSyllable.toWord(caption: String?) = WordTimestamp(
         text = content.trimEnd(),
         startTime = start / 1000.0,
         endTime = end / 1000.0,
         hasTrailingSpace = content.lastOrNull()?.isWhitespace() == true,
-        phonetic = phonetic?.takeIf { it.isNotBlank() && !sameText(it, content) },
+        phonetic = caption,
     )
 
-    private fun joinedPhonetic(syllables: List<KaraokeSyllable>): String? = buildString {
-        for (syllable in syllables) {
-            val caption = syllable.phonetic?.takeIf { it.isNotBlank() && !sameText(it, syllable.content) } ?: continue
+    /**
+     * Sources "transliterate" words that need none (English, or Korean in a Japanese song) as the
+     * text itself. A line in the Latin script keeps no captions. Otherwise every word needs one:
+     * a line with any caption gets none from the phonetics provider, so copied words in another
+     * script are romanized here and Latin words are kept as they are.
+     */
+    private fun captions(syllables: List<KaraokeSyllable>): List<String?> {
+        val text = syllables.joinToString("") { it.content }
+        if (!LyricsUtils.needsRomanization(text) || syllables.none { !it.phonetic.isNullOrBlank() }) {
+            return syllables.map { null }
+        }
+        val tag = if (text.any { it in '\u3040'..'\u30FF' }) LyricsPhonetics.JAPANESE else LyricsPhonetics.chineseTag()
+        return syllables.map { syllable ->
+            val content = syllable.content.trim()
+            val source = syllable.phonetic?.takeIf { it.isNotBlank() }
+            when {
+                content.isEmpty() -> source
+                source != null && !sameText(source, content) -> source
+                !LyricsUtils.needsRomanization(content) -> content
+                else -> LyricsPhonetics.romanize(content, if (content.any(::isHangul)) LyricsPhonetics.KOREAN else tag)
+                    .takeIf { it.isNotBlank() && !sameText(it, content) }
+            }
+        }
+    }
+
+    private fun joinedCaption(syllables: List<KaraokeSyllable>, captions: List<String?>): String? = buildString {
+        for ((index, syllable) in syllables.withIndex()) {
+            val caption = captions[index] ?: continue
             if (isNotEmpty()) append(syllable.phoneticSeparatorBefore.ifEmpty { " " })
             append(caption)
         }
     }.ifBlank { null }
 
-    /**
-     * Sources "transliterate" lines that need none (English, or Korean in a Japanese song) as the
-     * text itself; such captions are dropped, so Metrolist romanizes those lines or leaves them.
-     */
+    private fun isHangul(char: Char) = char in '\uAC00'..'\uD7A3' || char in '\u1100'..'\u11FF' || char in '\u3130'..'\u318F'
+
     private fun sameText(caption: String, text: String) =
         caption.filterNot(Char::isWhitespace) == text.filterNot(Char::isWhitespace)
 
@@ -97,7 +120,9 @@ object TtmlLyrics {
             agent = agent,
             isBackground = isBackground,
             sourceTranslation = sourceTranslation,
-            sourceRomanization = romanization?.takeIf { it.isNotBlank() && !sameText(it, text) },
+            sourceRomanization = romanization?.takeIf {
+                it.isNotBlank() && LyricsUtils.needsRomanization(text) && !sameText(it, text)
+            },
         )
     }
 }

@@ -89,13 +89,15 @@ object LyricsTranslationHelper {
      * brings them here.
      */
     fun loadTranslationsFromDatabase(lyrics: List<LyricsEntry>, lyricsEntity: LyricsEntity?) {
-        val active = lyricsEntity?.storedTranslations()?.active
-        _hasActiveTranslations.value = active != null
-        if (active == null) {
-            lyrics.forEach { it.translatedTextFlow.value = it.sourceTranslation }
-            return
+        val stored = lyricsEntity?.storedTranslations() ?: StoredTranslations()
+        val active = stored.active
+        _hasActiveTranslations.value =
+            active != null || (stored.shown && lyrics.any { it.sourceTranslation != null })
+        when {
+            active != null -> applyLines(lyrics, active.lines)
+            stored.shown -> lyrics.forEach { it.translatedTextFlow.value = it.sourceTranslation }
+            else -> lyrics.forEach { it.translatedTextFlow.value = null }
         }
-        applyLines(lyrics, active.lines)
     }
 
     private fun applyLines(lyrics: List<LyricsEntry>, lines: List<String>) {
