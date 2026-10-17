@@ -1,7 +1,8 @@
 // Modified by Metrolist: keeps a space between adjacent word captions, starts captions of
 // end-aligned words after their leading space, moves a caption that would be split across
 // wrapped rows to a line caption, records where words sit without captions, times each
-// caption by the source syllables it reads, and splits words only when wider than the full width.
+// caption by the source syllables it reads, splits words only when wider than the full width,
+// and never breaks rows inside a captioned syllable.
 package com.mocharealm.accompanist.lyrics.ui.internal.preparation
 
 import com.mocharealm.accompanist.lyrics.ui.internal.text.*
@@ -556,6 +557,15 @@ private fun prepareLine(
         }
         flushRow()
     }
+    // A syllable split by script (2人 is 2 + 人) keeps its caption on the first group; a break
+    // between the groups would leave the rest of it on the next row without its reading.
+    fun splitsCaptionedSyllable(before: PreparedAtom, after: PreparedAtom): Boolean {
+        val last = before.group.units.lastOrNull() ?: return false
+        val first = after.group.units.firstOrNull() ?: return false
+        val source = measuredLine.sourceFor(first.text.start, first.text.end)?.source ?: return false
+        return !source.phonetic.isNullOrBlank() &&
+            measuredLine.sourceFor(last.text.start, last.text.end)?.source === source
+    }
     var segmentStart = 0
     var rowsMatchTight = true
     for (index in atoms.indices) {
@@ -566,6 +576,7 @@ private fun prepareLine(
                 index,
                 layoutWidth,
                 style.localeList?.firstOrNull()?.toLanguageTag(),
+                ::splitsCaptionedSyllable,
                 ::appendRows,
             )
             segmentStart = index
@@ -577,6 +588,7 @@ private fun prepareLine(
         atoms.size,
         layoutWidth,
         style.localeList?.firstOrNull()?.toLanguageTag(),
+        ::splitsCaptionedSyllable,
         ::appendRows,
     )
     // Words can only slide to their caption-free places if those keep the same rows.
@@ -741,6 +753,7 @@ private fun appendBalancedRows(
     end: Int,
     maxWidth: Float,
     localeTag: String?,
+    keepTogether: (PreparedAtom, PreparedAtom) -> Boolean,
     appendRows: (Int, Int) -> Unit,
 ): Boolean {
     if (start >= end) return true
@@ -753,6 +766,7 @@ private fun appendBalancedRows(
     }
     val candidates = mutableListOf<LineBreakCandidate>()
     for (offset in 1 until end - start) {
+        if (keepTogether(atoms[start + offset - 1], atoms[start + offset])) continue
         val textOffset = atomOffsets[offset]
         val nextText = atoms[start + offset].sourceText
         var whitespaceEnd = textOffset
