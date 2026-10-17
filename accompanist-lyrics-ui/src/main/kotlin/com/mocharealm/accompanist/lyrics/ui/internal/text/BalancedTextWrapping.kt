@@ -1,3 +1,4 @@
+// Modified by Metrolist: Korean text breaks between words, not syllables (keep-all).
 package com.mocharealm.accompanist.lyrics.ui.internal.text
 
 import androidx.compose.ui.text.TextMeasurer
@@ -63,7 +64,11 @@ internal fun balancedTextLineBreaks(
     measurer: TextMeasurer,
 ): IntArray? {
     if (text.isEmpty()) return intArrayOf(0)
-    val legal = lineBreakBoundaries(text, localeTag).toSet()
+    // Korean separates words with spaces; like CSS keep-all, a break between two Hangul
+    // syllables is only an emergency one, for a word that cannot fit a row by itself.
+    val legal = lineBreakBoundaries(text, localeTag).filterNot { offset ->
+        offset in 1 until text.length && text[offset - 1].isHangulSyllable() && text[offset].isHangulSyllable()
+    }.toSet()
     val graphemes = graphemeBoundaries(text)
     val layout = measurer.measure(text, style, softWrap = false)
     val widthPrefix = FloatArray(text.length + 1)
@@ -98,3 +103,5 @@ internal fun balancedTextLineBreaks(
             else widthPrefix[visibleEnd] - widthPrefix[start]
         }
 }
+
+private fun Char.isHangulSyllable() = this in '\uAC00'..'\uD7A3'
