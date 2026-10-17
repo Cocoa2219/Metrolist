@@ -70,7 +70,9 @@ fun LyricsEntity.storedTranslations(): StoredTranslations {
 }
 
 fun LyricsEntity.withTranslations(translations: StoredTranslations): LyricsEntity {
-    if (translations.translations.isEmpty()) return copy(translatedLyrics = "", translationLanguage = "", translationMode = "")
+    // Only the default record is left empty; "off" must be kept even without AI translations, for
+    // lyrics that come with their own.
+    if (translations == StoredTranslations()) return copy(translatedLyrics = "", translationLanguage = "", translationMode = "")
     val active = translations.translations.getOrNull(translations.selected)
     return copy(
         translatedLyrics = json.encodeToString(StoredTranslations.serializer(), translations),
