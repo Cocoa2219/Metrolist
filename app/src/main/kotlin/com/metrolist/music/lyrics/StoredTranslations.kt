@@ -20,8 +20,8 @@ data class StoredTranslation(
 )
 
 /**
- * Every translation made for a song, the one chosen for display, and whether it is shown.
- * [selected] is -1 when only the translation the lyrics came with (if any) is shown.
+ * Every translation made for a song, the one chosen for display, and whether translations are
+ * shown at all. [selected] is -1 for the translation the lyrics came with, if any.
  */
 @Serializable
 data class StoredTranslations(

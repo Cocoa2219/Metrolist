@@ -73,6 +73,7 @@ import com.metrolist.music.lyrics.LyricsUtils
 import com.metrolist.music.lyrics.isTtml
 import com.metrolist.music.lyrics.LyricsQuality
 import com.metrolist.music.lyrics.StoredTranslation
+import com.metrolist.music.lyrics.TtmlLyrics
 import com.metrolist.music.lyrics.StoredTranslations
 import com.metrolist.music.lyrics.storedTranslations
 import com.metrolist.music.lyrics.withTranslations
@@ -134,16 +135,37 @@ fun LyricsMenu(
     val storedTranslations = remember(lyricsProvider()?.translatedLyrics) {
         lyricsProvider()?.storedTranslations() ?: StoredTranslations()
     }
+    val hasSourceTranslation = remember(lyricsProvider()?.lyrics) {
+        lyricsProvider()?.lyrics?.takeIf(::isTtml)?.let { ttml ->
+            TtmlLyrics.parse(ttml).any { it.sourceTranslation != null }
+        } == true
+    }
     // The lyrics views reload translations whenever the lyrics row changes.
     fun updateTranslations(update: (StoredTranslations) -> StoredTranslations) {
         val lyrics = lyricsProvider() ?: return
         database.query { upsert(lyrics.withTranslations(update(lyrics.storedTranslations()))) }
     }
+    // A chosen translation, or the one the lyrics came with, shows again; otherwise one is made.
+    fun showTranslations() {
+        if (storedTranslations.selected >= 0 || hasSourceTranslation) updateTranslations { it.copy(shown = true) }
+        else LyricsTranslationHelper.triggerManualTranslation()
+    }
     var showTranslationsDialog by rememberSaveable { mutableStateOf(false) }
     if (showTranslationsDialog) {
         SavedTranslationsDialog(
             translations = storedTranslations,
-            onSelect = { index -> updateTranslations { it.copy(selected = index, shown = index >= 0) } },
+            hasSourceTranslation = hasSourceTranslation,
+            onSelect = { index ->
+                updateTranslations {
+                    if (index == TRANSLATION_OFF) it.copy(shown = false) else it.copy(selected = index, shown = true)
+                }
+            },
+            onTranslate = if (hasApiKey) {
+                {
+                    LyricsTranslationHelper.triggerManualTranslation()
+                    showTranslationsDialog = false
+                }
+            } else null,
             onDelete = { index -> updateTranslations { it.without(index) } },
             onReset = {
                 updateTranslations { StoredTranslations() }
@@ -521,11 +543,10 @@ fun LyricsMenu(
         item {
             Material3MenuGroup(
                 items = buildList {
-                    // Add translation toggle option if API key is configured
-                    if (hasApiKey) {
+                    if (hasApiKey || hasSourceTranslation || storedTranslations.translations.isNotEmpty()) {
                         add(
                             Material3MenuItemData(
-                                title = { Text(stringResource(R.string.ai_lyrics_translation)) },
+                                title = { Text(stringResource(R.string.lyrics_translation)) },
                                 icon = {
                                     Icon(
                                         painter = painterResource(R.drawable.translate),
@@ -533,20 +554,15 @@ fun LyricsMenu(
                                     )
                                 },
                                 onClick = {
-                                    if (hasTranslations) {
-                                        updateTranslations { it.copy(shown = false) }
-                                    } else {
-                                        // Trigger translation
-                                        LyricsTranslationHelper.triggerManualTranslation()
-                                    }
+                                    if (hasTranslations) updateTranslations { it.copy(shown = false) }
+                                    else showTranslations()
                                 },
                                 trailingContent = {
                                     Switch(
                                         checked = hasTranslations,
                                         onCheckedChange = { newCheckedState ->
                                             if (newCheckedState) {
-                                                // Enable translations – hasActiveTranslations updates when done
-                                                LyricsTranslationHelper.triggerManualTranslation()
+                                                showTranslations()
                                             } else {
                                                 // Hidden translations stay saved, and come back without a new request.
                                                 updateTranslations { it.copy(shown = false) }
@@ -572,12 +588,16 @@ fun LyricsMenu(
                         )
                     }
                     
-                    if (storedTranslations.translations.isNotEmpty()) {
+                    if (storedTranslations.translations.isNotEmpty() || hasSourceTranslation) {
                         add(
                             Material3MenuItemData(
                                 title = { Text(stringResource(R.string.saved_translations)) },
                                 description = {
-                                    Text(storedTranslations.active?.let { translationLabel(it) } ?: stringResource(R.string.saved_translations_off))
+                                    Text(
+                                        storedTranslations.active?.let { translationLabel(it) }
+                                            ?: if (storedTranslations.shown && hasSourceTranslation) stringResource(R.string.translation_from_lyrics)
+                                            else stringResource(R.string.saved_translations_off),
+                                    )
                                 },
                                 icon = {
                                     Icon(
@@ -754,16 +774,27 @@ private fun translationLabel(translation: StoredTranslation): String {
     return "$language · $mode"
 }
 
-/** Every translation saved for the song; the chosen one shows under the lyrics. */
+private const val TRANSLATION_OFF = -2
+
+/**
+ * The song's translations, its lyrics' own and every saved AI one; the chosen one shows under the
+ * lyrics. [onTranslate] makes a new AI translation, when a provider is set up.
+ */
 @Composable
 private fun SavedTranslationsDialog(
     translations: StoredTranslations,
+    hasSourceTranslation: Boolean,
     onSelect: (Int) -> Unit,
     onDelete: (Int) -> Unit,
+    onTranslate: (() -> Unit)?,
     onReset: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val selected = if (translations.shown) translations.selected else -1
+    val selected = when {
+        !translations.shown -> TRANSLATION_OFF
+        translations.selected < 0 && !hasSourceTranslation -> TRANSLATION_OFF
+        else -> translations.selected
+    }
     DefaultDialog(
         onDismiss = onDismiss,
         icon = { Icon(painter = painterResource(R.drawable.history), contentDescription = null) },
@@ -777,10 +808,19 @@ private fun SavedTranslationsDialog(
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().clickable { onSelect(-1) }.padding(vertical = 4.dp),
+            modifier = Modifier.fillMaxWidth().clickable { onSelect(TRANSLATION_OFF) }.padding(vertical = 4.dp),
         ) {
-            RadioButton(selected = selected == -1, onClick = { onSelect(-1) })
+            RadioButton(selected = selected == TRANSLATION_OFF, onClick = { onSelect(TRANSLATION_OFF) })
             Text(stringResource(R.string.saved_translations_off), modifier = Modifier.weight(1f))
+        }
+        if (hasSourceTranslation) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable { onSelect(-1) }.padding(vertical = 4.dp),
+            ) {
+                RadioButton(selected = selected == -1, onClick = { onSelect(-1) })
+                Text(stringResource(R.string.translation_from_lyrics), modifier = Modifier.weight(1f))
+            }
         }
         translations.translations.forEachIndexed { index, translation ->
             Row(
@@ -807,6 +847,16 @@ private fun SavedTranslationsDialog(
                 IconButton(onClick = { onDelete(index) }) {
                     Icon(painter = painterResource(R.drawable.delete), contentDescription = stringResource(R.string.delete))
                 }
+            }
+        }
+        if (onTranslate != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth().clickable(onClick = onTranslate).padding(vertical = 12.dp, horizontal = 12.dp),
+            ) {
+                Icon(painter = painterResource(R.drawable.translate), contentDescription = null)
+                Spacer(Modifier.width(24.dp))
+                Text(stringResource(R.string.translate_with_ai), modifier = Modifier.weight(1f))
             }
         }
     }
