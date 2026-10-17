@@ -2,7 +2,7 @@
 // end-aligned words after their leading space, moves a caption that would be split across
 // wrapped rows to a line caption, records where words sit without captions, times each
 // caption by the source syllables it reads, splits words only when wider than the full width,
-// and never breaks rows inside a captioned syllable.
+// never breaks rows inside a captioned syllable, and lets a caption span every part of its syllable.
 package com.mocharealm.accompanist.lyrics.ui.internal.preparation
 
 import com.mocharealm.accompanist.lyrics.ui.internal.text.*
@@ -280,6 +280,19 @@ private fun prepareLine(
     }
     val phoneticSpaceWidth by lazy(LazyThreadSafetyMode.NONE) {
         measurer.measure(" ", animatedPhoneticStyle, softWrap = false).size.width.toFloat()
+    }
+    // A syllable split by script (2人 is 2 + 人) has its caption on the first group. The caption
+    // spans the following parts, so it widens the whole syllable rather than the first part alone.
+    fun sourceSyllable(unit: PreparedTextUnit) = measuredLine.sourceFor(unit.text.start, unit.text.end)?.source
+    val orderedGroups = runs.flatMap { it.groups }
+    for ((index, group) in orderedGroups.withIndex()) {
+        if (group.phoneticWidth <= 0f) continue
+        val source = group.units.lastOrNull()?.let(::sourceSyllable) ?: continue
+        for (next in orderedGroups.subList(index + 1, orderedGroups.size)) {
+            if (next.phoneticWidth > 0f || next.units.firstOrNull()?.let(::sourceSyllable) !== source) break
+            group.captionCredit += next.textWidth
+            next.captionOwner = group
+        }
     }
     val atoms = buildList {
         for (run in runs) for (group in run.groups) {
@@ -678,7 +691,8 @@ private fun phoneticWordGap(
     rtl: Boolean,
     spaceWidth: () -> Float,
 ): Float {
-    val before = previous.group
+    // After the last part of a syllable sharing a caption, the gap is measured from that caption.
+    val before = previous.group.captionOwner ?: previous.group
     val after = next.group
     if (before.phoneticWidth <= 0f || after.phoneticWidth <= 0f) return 0f
     // Captions align to their own script's reading edge, including within a mixed-direction row.
@@ -686,7 +700,7 @@ private fun phoneticWordGap(
     // trailing space, so the gap is measured between the captions themselves.
     val trailingSlack =
         if (previous.sourceText.isRtl(fallback = rtl) == rtl)
-            before.width - before.captionInset - before.phoneticWidth
+            before.width + before.captionCredit - before.captionInset - before.phoneticWidth
         else 0f
     val leadingSlack =
         if (next.sourceText.isRtl(fallback = rtl) != rtl) after.width - after.phoneticWidth
