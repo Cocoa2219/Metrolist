@@ -583,6 +583,7 @@ private fun ThumbnailItem(
 
         Box(
             modifier = sizingModifier
+                .then(if (item.mediaId == currentMediaId) Modifier.playerArtwork() else Modifier)
                 .clip(RoundedCornerShape(dimensions.cornerRadius))
         ) {
             if (hidePlayerThumbnail) {
