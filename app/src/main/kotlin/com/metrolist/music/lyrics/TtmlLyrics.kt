@@ -33,8 +33,16 @@ object TtmlLyrics {
     private val GENERATED_TRANSLITERATION =
         Regex("""<transliteration\b[^>]*automaticallyCreated="true"[^>]*>.*?</transliteration>""", RegexOption.DOT_MATCHES_ALL)
 
+    // A line's transliteration nests its background vocals like the body does, and the parser
+    // appends them to the main line's last syllable caption. They are dropped there; background
+    // lines in a script needing romanization get Metrolist's own.
+    private val TRANSLITERATIONS = Regex("""<transliterations\b.*?</transliterations>""", RegexOption.DOT_MATCHES_ALL)
+    private val BACKGROUND_SPAN =
+        Regex("""<span\b[^>]*ttm:role="x-bg"[^>]*>(?:\s*<span\b[^>]*>[^<]*</span>)*\s*</span>""")
+
     fun parse(ttml: String): List<LyricsEntry> {
         val source = ttml.replace(LRC_KEY, " itunes:key=").replace(GENERATED_TRANSLITERATION, "")
+            .replace(TRANSLITERATIONS) { it.value.replace(BACKGROUND_SPAN, "") }
         val lyrics = runCatching { parser.parse(source) }
             .onFailure { Timber.w(it, "Failed to parse TTML") }
             .getOrNull() ?: return emptyList()
