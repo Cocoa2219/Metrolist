@@ -54,7 +54,7 @@ fun lyricsQuality(lyrics: String): LyricsQuality {
     }
 }
 
-internal data class LyricsCandidate(
+data class LyricsCandidate(
     val provider: String,
     val lyrics: String,
     val quality: LyricsQuality,

@@ -8,6 +8,17 @@ package com.metrolist.music.lyrics
 import android.content.Context
 import android.util.LruCache
 import com.metrolist.music.constants.LyricsProviderOrderKey
+import com.metrolist.music.constants.EnableAmllKey
+import com.metrolist.music.constants.EnableBetterLyricsKey
+import com.metrolist.music.constants.EnableKugouKey
+import com.metrolist.music.constants.EnableLrcLibKey
+import com.metrolist.music.constants.EnableLrcMuxKey
+import com.metrolist.music.constants.EnableLrcRedKey
+import com.metrolist.music.constants.EnableLyricsPlus
+import com.metrolist.music.constants.EnablePaxsenixKey
+import com.metrolist.music.constants.EnableUnisonKey
+import com.metrolist.music.constants.EnableZemerKey
+import com.metrolist.music.utils.get
 import com.metrolist.music.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.utils.NetworkConnectivityObserver
@@ -19,28 +30,18 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.selects.onTimeout
-import kotlinx.coroutines.selects.select
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 private const val TAG = "LyricsHelper"
-private const val MAX_LYRICS_FETCH_MS = 25000L
-private const val PER_PROVIDER_TIMEOUT_MS = 8000L
-/** How long the top source is asked alone before the rest are asked too. */
-private const val LEAD_HOLD_MS = 1000L
 private const val PROVIDER_NONE = ""
 
 class LyricsHelper
@@ -69,7 +70,6 @@ constructor(
         return search.await()
     }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun searchLyrics(mediaMetadata: MediaMetadata): LyricsWithProvider {
         currentLyricsJob?.cancel()
 
@@ -97,71 +97,15 @@ constructor(
         val enabledProviders = orderedProviders.filter { it.isEnabled(context) }
         Timber.tag(TAG).d("Fetching lyrics for: $cleanedTitle by $artists from ${enabledProviders.joinToString { it.name }}")
 
-        suspend fun ask(rank: Int): LyricsCandidate? {
-            val provider = enabledProviders[rank]
-            val started = System.currentTimeMillis()
-            val candidate = try {
-                withTimeoutOrNull(PER_PROVIDER_TIMEOUT_MS) {
-                    provider.getLyrics(context, mediaMetadata.id, cleanedTitle, artists, mediaMetadata.duration, mediaMetadata.album?.title)
-                }?.getOrNull()
-                    ?.let(::normalizeLyrics)
-                    ?.let { LyricsCandidate(provider.name, it, lyricsQuality(it), rank) }
-                    ?.takeIf { it.quality != LyricsQuality.NONE }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.tag(TAG).w("${provider.name} threw: ${e.message}")
-                null
-            }
-            Timber.tag(TAG).d("${provider.name}: ${candidate?.quality ?: "miss"} in ${System.currentTimeMillis() - started}ms")
-            return candidate
-        }
-
-        // Kept outside the overall timeout so a slow walk still returns the best answer so far.
-        val candidates = mutableListOf<LyricsCandidate>()
-        withTimeoutOrNull(MAX_LYRICS_FETCH_MS) {
-            coroutineScope {
-                val landed = Channel<Pair<Int, LyricsCandidate?>>(Channel.UNLIMITED)
-                val jobs = mutableListOf<Job>()
-                val pending = mutableSetOf<Int>()
-                fun launchAsk(rank: Int) {
-                    pending += rank
-                    jobs += launch { landed.send(rank to ask(rank)) }
-                }
-
-                // The top source leads alone, since one request usually settles a song; the rest are
-                // asked in parallel only if it misses, answers without word timing, or is slow.
-                if (enabledProviders.isNotEmpty()) launchAsk(0)
-                var fannedOut = enabledProviders.size <= 1
-                fun fanOut() {
-                    (1 until enabledProviders.size).forEach(::launchAsk)
-                    fannedOut = true
-                }
-
-                while (!isSettled(candidates.best(), pending)) {
-                    if (!fannedOut && pending.isEmpty()) fanOut()
-                    if (pending.isEmpty()) break
-                    val next = if (fannedOut) {
-                        landed.receive()
-                    } else {
-                        select<Pair<Int, LyricsCandidate?>?> {
-                            landed.onReceive { it }
-                            onTimeout(LEAD_HOLD_MS) { null }
-                        }
-                    }
-                    if (next == null) {
-                        fanOut()
-                        continue
-                    }
-                    pending -= next.first
-                    next.second?.let(candidates::add)
-                }
-                jobs.forEach { it.cancel() }
-            }
-        }
-
-        val best = candidates.best()
-        Timber.tag(TAG).i("Picked ${best?.provider ?: "nothing"} (${best?.quality ?: LyricsQuality.NONE})")
+        val best = searchBestLyrics(
+            context = context,
+            providers = enabledProviders,
+            id = mediaMetadata.id,
+            title = cleanedTitle,
+            artists = artists,
+            duration = mediaMetadata.duration,
+            album = mediaMetadata.album?.title,
+        )
         return best?.let { LyricsWithProvider(it.lyrics, it.provider) }
             ?: LyricsWithProvider(LYRICS_NOT_FOUND, PROVIDER_NONE)
     }
@@ -277,3 +221,20 @@ data class LyricsWithProvider(
     val lyrics: String,
     val provider: String,
 )
+
+// The providers are shared with the watch app, so whether each is switched on comes from this app's settings.
+private fun LyricsProvider.isEnabled(context: Context): Boolean =
+    when (this) {
+        BetterLyricsProvider -> context.dataStore[EnableBetterLyricsKey] ?: true
+        AmllLyricsProvider -> context.dataStore[EnableAmllKey] ?: true
+        UnisonLyricsProvider -> context.dataStore[EnableUnisonKey] ?: true
+        LrcLibLyricsProvider -> context.dataStore[EnableLrcLibKey] ?: true
+        KuGouLyricsProvider -> context.dataStore[EnableKugouKey] ?: true
+        PaxsenixLyricsProvider -> context.dataStore[EnablePaxsenixKey] ?: true
+        LyricsPlusProvider -> context.dataStore[EnableLyricsPlus] ?: false
+        ZemerLyricsProvider -> context.dataStore[EnableZemerKey] ?: true
+        LrcMuxLyricsProvider -> context.dataStore[EnableLrcMuxKey] ?: true
+        LrcRedLyricsProvider -> context.dataStore[EnableLrcRedKey] ?: true
+        // YouTube and YouTube subtitles have no switch.
+        else -> true
+    }

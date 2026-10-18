@@ -7,17 +7,12 @@ package com.metrolist.music.lyrics
 
 import android.content.Context
 import com.metrolist.paxsenix.Paxsenix
-import com.metrolist.music.constants.EnablePaxsenixKey
-import com.metrolist.music.utils.dataStore
-import com.metrolist.music.utils.get
 import timber.log.Timber
 
 object PaxsenixLyricsProvider : LyricsProvider {
     private const val TAG = "PaxsenixProvider"
     
     override val name = "Paxsenix"
-
-    override fun isEnabled(context: Context): Boolean = context.dataStore[EnablePaxsenixKey] ?: true
 
     override suspend fun getLyrics(
         context: Context,

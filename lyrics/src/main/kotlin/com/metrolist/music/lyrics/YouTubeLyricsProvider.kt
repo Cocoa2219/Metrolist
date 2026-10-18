@@ -15,8 +15,6 @@ import kotlinx.coroutines.withContext
 object YouTubeLyricsProvider : LyricsProvider {
     override val name = "YouTube Music"
 
-    override fun isEnabled(context: Context) = true
-
     override suspend fun getLyrics(
         context: Context,
         id: String,

@@ -6,30 +6,30 @@
 package com.metrolist.music.lyrics
 
 import android.content.Context
+import com.metrolist.kugou.KuGou
 
-interface LyricsProvider {
-    val name: String
+object KuGouLyricsProvider : LyricsProvider {
+    override val name = "Kugou"
 
-    fun isEnabled(context: Context): Boolean
-
-    suspend fun getLyrics(
+    override suspend fun getLyrics(
         context: Context,
         id: String,
         title: String,
         artist: String,
         duration: Int,
-        album: String? = null,
-    ): Result<String>
+        album: String?,
+    ): Result<String> =
+        KuGou.getLyrics(title, artist, duration, album)
 
-    suspend fun getAllLyrics(
+    override suspend fun getAllLyrics(
         context: Context,
         id: String,
         title: String,
         artist: String,
         duration: Int,
-        album: String? = null,
+        album: String?,
         callback: (String) -> Unit,
     ) {
-        getLyrics(context, id, title, artist, duration, album).onSuccess(callback)
+        KuGou.getAllPossibleLyricsOptions(title, artist, duration, album, callback)
     }
 }

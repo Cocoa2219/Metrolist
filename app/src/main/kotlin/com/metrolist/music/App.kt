@@ -42,6 +42,9 @@ import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.safeDataStoreEdit
 import com.metrolist.music.utils.reportException
 import dagger.hilt.android.HiltAndroidApp
+import com.mocharealm.accompanist.lyrics.phonetics.data.CantoneseData
+import com.mocharealm.accompanist.lyrics.phonetics.data.JapaneseData
+import com.mocharealm.accompanist.lyrics.phonetics.data.MandarinData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -93,7 +96,9 @@ class App :
         // Plant logging before extraction services initialize.
         Timber.plant(Timber.DebugTree())
         InnerTubeXPlayer.initialize(this, PoTokenGenerator(this))
-        LyricsPhonetics.initialize(this)
+        LyricsPhonetics.initialize(this) { packs ->
+            listOf(MandarinData.mainland(packs), MandarinData.taiwan(packs), CantoneseData.hongKong(packs), JapaneseData.japanese(packs))
+        }
 
         // Pre-read Coil cache size on background to avoid runBlocking in newImageLoader
         applicationScope.launch(Dispatchers.IO) {

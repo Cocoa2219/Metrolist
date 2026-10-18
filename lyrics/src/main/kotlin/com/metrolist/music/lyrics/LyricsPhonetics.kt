@@ -22,6 +22,7 @@ import com.mocharealm.accompanist.lyrics.phonetics.AsciiFormatter
 import com.mocharealm.accompanist.lyrics.phonetics.CjkPhoneticProfile
 import com.mocharealm.accompanist.lyrics.phonetics.FormatOptions
 import com.mocharealm.accompanist.lyrics.phonetics.LanguageHint
+import com.mocharealm.accompanist.lyrics.phonetics.LanguageResolver
 import com.mocharealm.accompanist.lyrics.phonetics.LanguageResult
 import com.mocharealm.accompanist.lyrics.phonetics.PackLoader
 import com.mocharealm.accompanist.lyrics.phonetics.ParseOptions
@@ -37,9 +38,6 @@ import com.mocharealm.accompanist.lyrics.phonetics.ReadingUnit
 import com.mocharealm.accompanist.lyrics.phonetics.Resolution
 import com.mocharealm.accompanist.lyrics.phonetics.SharedPackLoader
 import com.mocharealm.accompanist.lyrics.phonetics.TextRange
-import com.mocharealm.accompanist.lyrics.phonetics.data.CantoneseData
-import com.mocharealm.accompanist.lyrics.phonetics.data.JapaneseData
-import com.mocharealm.accompanist.lyrics.phonetics.data.MandarinData
 import com.mocharealm.accompanist.lyrics.phonetics.isHangulCodePoint
 import java.util.Locale
 
@@ -58,20 +56,25 @@ object LyricsPhonetics : PhoneticProvider {
 
     @Volatile var chineseReading: ChineseReading = ChineseReading.MANDARIN
 
-    fun initialize(context: Context) {
-        synchronized(this) { if (loader == null) loader = SharedPackLoader(AndroidPackLoader(context)) }
+    @Volatile private var languages: ((PackLoader) -> List<LanguageResolver>)? = null
+
+    /**
+     * [languages] builds the dictionary readings from the data packs the calling app ships (the phone bundles
+     * Mandarin, Cantonese and Japanese; the watch only Japanese). Korean needs no pack.
+     */
+    fun initialize(
+        context: Context,
+        languages: (PackLoader) -> List<LanguageResolver>,
+    ) {
+        synchronized(this) {
+            if (loader == null) loader = SharedPackLoader(AndroidPackLoader(context))
+            if (this.languages == null) this.languages = languages
+        }
     }
 
     private val engine by lazy {
         val packs = checkNotNull(loader) { "LyricsPhonetics.initialize must be called first" }
-        val cjk = CjkPhoneticProfile(
-            listOf(
-                MandarinData.mainland(packs),
-                MandarinData.taiwan(packs),
-                CantoneseData.hongKong(packs),
-                JapaneseData.japanese(packs),
-            ),
-        )
+        val cjk = CjkPhoneticProfile(checkNotNull(languages)(packs))
         PhoneticEngine(profiles = listOf(cjk, HangulProfile))
     }
 

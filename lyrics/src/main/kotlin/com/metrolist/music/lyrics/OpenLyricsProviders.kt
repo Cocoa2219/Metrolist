@@ -6,12 +6,6 @@
 package com.metrolist.music.lyrics
 
 import android.content.Context
-import com.metrolist.music.constants.EnableAmllKey
-import com.metrolist.music.constants.EnableLrcMuxKey
-import com.metrolist.music.constants.EnableLrcRedKey
-import com.metrolist.music.constants.EnableUnisonKey
-import com.metrolist.music.utils.dataStore
-import com.metrolist.music.utils.get
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.HttpTimeout
@@ -84,8 +78,6 @@ object AmllLyricsProvider : LyricsProvider {
     override val name = "AMLL"
     private const val BASE = "https://api.amll.dev/v1/lyrics"
 
-    override fun isEnabled(context: Context) = context.dataStore[EnableAmllKey] ?: true
-
     override suspend fun getLyrics(
         context: Context, id: String, title: String, artist: String, duration: Int, album: String?,
     ): Result<String> = runCatching {
@@ -111,8 +103,6 @@ object UnisonLyricsProvider : LyricsProvider {
     private const val BASE = "https://unison.boidu.dev/lyrics"
     private const val DURATION_TOLERANCE_S = 5
 
-    override fun isEnabled(context: Context) = context.dataStore[EnableUnisonKey] ?: true
-
     override suspend fun getLyrics(
         context: Context, id: String, title: String, artist: String, duration: Int, album: String?,
     ): Result<String> = runCatching {
@@ -133,8 +123,6 @@ object UnisonLyricsProvider : LyricsProvider {
 /** LRCMux: aggregates other sources and returns word timing as JSON lines in milliseconds. */
 object LrcMuxLyricsProvider : LyricsProvider {
     override val name = "LRCMux"
-
-    override fun isEnabled(context: Context) = context.dataStore[EnableLrcMuxKey] ?: true
 
     override suspend fun getLyrics(
         context: Context, id: String, title: String, artist: String, duration: Int, album: String?,
@@ -172,8 +160,6 @@ object LrcRedLyricsProvider : LyricsProvider {
     private const val TAG = "LrcRed"
     private const val BASE = "https://lrc.red"
     private const val DURATION_TOLERANCE_S = 3.0
-
-    override fun isEnabled(context: Context) = context.dataStore[EnableLrcRedKey] ?: true
 
     override suspend fun getLyrics(
         context: Context, id: String, title: String, artist: String, duration: Int, album: String?,

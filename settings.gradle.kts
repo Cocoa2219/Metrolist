@@ -41,6 +41,7 @@ rootProject.name = "Metrolist"
 include(":app")
 include(":innertube")
 include(":extraction")
+include(":lyrics")
 include(":accompanist-lyrics-ui")
 include(":wear")
 include(":wearprobe")

@@ -6,15 +6,10 @@
 package com.metrolist.music.lyrics
 
 import android.content.Context
-import com.metrolist.kugou.KuGou
-import com.metrolist.music.constants.EnableKugouKey
-import com.metrolist.music.utils.dataStore
-import com.metrolist.music.utils.get
+import com.metrolist.lrclib.LrcLib
 
-object KuGouLyricsProvider : LyricsProvider {
-    override val name = "Kugou"
-    override fun isEnabled(context: Context): Boolean =
-        context.dataStore[EnableKugouKey] ?: true
+object LrcLibLyricsProvider : LyricsProvider {
+    override val name = "LrcLib"
 
     override suspend fun getLyrics(
         context: Context,
@@ -23,8 +18,7 @@ object KuGouLyricsProvider : LyricsProvider {
         artist: String,
         duration: Int,
         album: String?,
-    ): Result<String> =
-        KuGou.getLyrics(title, artist, duration, album)
+    ): Result<String> = LrcLib.getLyrics(title, artist, duration, album)
 
     override suspend fun getAllLyrics(
         context: Context,
@@ -35,6 +29,6 @@ object KuGouLyricsProvider : LyricsProvider {
         album: String?,
         callback: (String) -> Unit,
     ) {
-        KuGou.getAllPossibleLyricsOptions(title, artist, duration, album, callback)
+        LrcLib.getAllLyrics(title, artist, duration, album, callback)
     }
 }
