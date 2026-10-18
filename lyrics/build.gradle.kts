@@ -21,6 +21,15 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // Robolectric's FileDescriptor interceptor goes through jdk.internal.access.SharedSecrets, which the JDK
+        // doesn't export to unnamed modules.
+        unitTests.all {
+            it.jvmArgs(
+                "--add-exports=java.base/jdk.internal.access=ALL-UNNAMED",
+                "--add-opens=java.base/jdk.internal.access=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED",
+            )
+        }
     }
 }
 
