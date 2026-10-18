@@ -19,6 +19,28 @@ android {
         }
     }
 
+    buildTypes {
+        debug {
+            // The Wear OS emulator is x86_64; release builds stay ARM-only.
+            ndk {
+                abiFilters += "x86_64"
+            }
+        }
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // A personal build: signed with the debug key so it installs over a debug build, keeping the login.
+            signingConfig = signingConfigs.getByName("debug")
+            // -PwithEmulatorAbi adds x86_64 to try a release build on the emulator.
+            if (providers.gradleProperty("withEmulatorAbi").isPresent) {
+                ndk {
+                    abiFilters += "x86_64"
+                }
+            }
+        }
+    }
+
     buildFeatures {
         compose = true
     }

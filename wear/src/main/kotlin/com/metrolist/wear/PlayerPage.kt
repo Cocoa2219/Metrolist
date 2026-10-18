@@ -2,6 +2,12 @@ package com.metrolist.wear
 
 import android.net.Uri
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import coil3.imageLoader
+import coil3.request.ImageRequest
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
@@ -83,12 +89,7 @@ fun ArtworkBackground(
     modifier: Modifier = Modifier,
 ) {
     Box(modifier.fillMaxSize().background(Color.Black)) {
-        AsyncImage(
-            model = artworkUri,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
+        CrossfadeArtwork(artworkUri)
         Box(
             Modifier.fillMaxSize().drawWithCache {
                 // Round, Spotify-strength edge darkening: clear centre, near black at the bezel. Its radius sits
@@ -115,6 +116,30 @@ fun ArtworkBackground(
                     blackout().takeIf { it > 0f }?.let { drawRect(Color.Black.copy(alpha = it)) }
                 }
             },
+        )
+    }
+}
+
+private const val ARTWORK_CROSSFADE_MS = 500
+
+/**
+ * Keeps the previous song's art until the next one has loaded, then crossfades, so a song change never flashes
+ * black. The load warms Coil's memory cache at full size, which the on-screen (smaller) request is then served from.
+ */
+@Composable
+private fun CrossfadeArtwork(artworkUri: Uri?) {
+    val context = LocalContext.current
+    var shown by remember { mutableStateOf(artworkUri) }
+    LaunchedEffect(artworkUri) {
+        if (artworkUri != null) context.imageLoader.execute(ImageRequest.Builder(context).data(artworkUri).build())
+        shown = artworkUri
+    }
+    Crossfade(targetState = shown, animationSpec = tween(ARTWORK_CROSSFADE_MS), label = "artwork") { uri ->
+        AsyncImage(
+            model = uri,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
         )
     }
 }
@@ -192,25 +217,24 @@ private fun PlayerControls(
 ) {
     Box(Modifier.fillMaxSize()) {
         // Full width on purpose: the marquee then enters and leaves past the round edge of the screen.
-        Column(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = 34.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                nowPlaying.title.ifEmpty { stringResource(R.string.nothing_playing) },
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                modifier = Modifier.basicMarquee(iterations = MARQUEE_PASSES, initialDelayMillis = 1_500).padding(horizontal = 32.dp),
-            )
-            Text(
-                nowPlaying.artist,
-                style = MaterialTheme.typography.bodyMedium,
-                color = accent,
-                maxLines = 1,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.basicMarquee(iterations = MARQUEE_PASSES, initialDelayMillis = 1_500).padding(horizontal = 32.dp),
-            )
+        SongChangeTransition(nowPlaying, Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = 34.dp)) { song ->
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    song.title.ifEmpty { stringResource(R.string.nothing_playing) },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee(iterations = MARQUEE_PASSES, initialDelayMillis = 1_500).padding(horizontal = 32.dp),
+                )
+                Text(
+                    song.artist,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = accent,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.basicMarquee(iterations = MARQUEE_PASSES, initialDelayMillis = 1_500).padding(horizontal = 32.dp),
+                )
+            }
         }
 
         // A plain row rather than ButtonGroup: the seek ring is drawn around the screen centre, so the

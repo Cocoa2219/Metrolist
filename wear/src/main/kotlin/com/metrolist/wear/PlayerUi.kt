@@ -7,6 +7,12 @@ import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.View
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -64,7 +70,36 @@ data class NowPlaying(
     val artworkUri: Uri? = null,
     val playing: Boolean = false,
     val durationMs: Long = 0L,
+    // Position in the queue; a higher one than before means the song changed "forward".
+    val queueIndex: Int = 0,
 )
+
+private const val SONG_IN_MS = 350
+private const val SONG_OUT_MS = 250
+
+/**
+ * Title/artist that slide and fade to the new song, from the right on a skip forward and from the left on a
+ * skip back. Keyed on the song, so play/pause and other updates don't animate.
+ */
+@Composable
+fun SongChangeTransition(
+    nowPlaying: NowPlaying,
+    modifier: Modifier = Modifier,
+    content: @Composable (NowPlaying) -> Unit,
+) {
+    AnimatedContent(
+        targetState = nowPlaying,
+        modifier = modifier,
+        contentKey = { it.mediaId },
+        transitionSpec = {
+            val direction = if (targetState.queueIndex >= initialState.queueIndex) 1 else -1
+            (slideInHorizontally(tween(SONG_IN_MS)) { it / 3 * direction } + fadeIn(tween(SONG_IN_MS))) togetherWith
+                (slideOutHorizontally(tween(SONG_OUT_MS)) { -it / 3 * direction } + fadeOut(tween(SONG_OUT_MS))) using
+                SizeTransform(clip = false)
+        },
+        label = "songChange",
+    ) { content(it) }
+}
 
 @Composable
 fun rememberNowPlaying(player: Player?): NowPlaying {
@@ -91,6 +126,7 @@ fun rememberNowPlaying(player: Player?): NowPlaying {
             artworkUri = metadata?.artworkUri,
             playing = player?.playWhenReady == true,
             durationMs = player?.duration?.takeIf { it > 0 } ?: 0L,
+            queueIndex = player?.currentMediaItemIndex ?: 0,
         )
     }
 }

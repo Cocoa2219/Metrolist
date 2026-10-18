@@ -73,25 +73,24 @@ fun ArtworkPage(
                 )
             },
     ) {
-        Column(
-            // Full width like the player, so marquee ends fall past the round edge.
-            Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 30.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                nowPlaying.title.ifEmpty { stringResource(R.string.nothing_playing) },
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                modifier = Modifier.basicMarquee(iterations = MARQUEE_PASSES, initialDelayMillis = 1_500).padding(horizontal = 24.dp),
-            )
-            Text(
-                nowPlaying.artist,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.7f),
-                maxLines = 1,
-                modifier = Modifier.basicMarquee(iterations = MARQUEE_PASSES, initialDelayMillis = 1_500).padding(horizontal = 24.dp),
-            )
+        // Full width like the player, so marquee ends fall past the round edge.
+        SongChangeTransition(nowPlaying, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 30.dp)) { song ->
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    song.title.ifEmpty { stringResource(R.string.nothing_playing) },
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee(iterations = MARQUEE_PASSES, initialDelayMillis = 1_500).padding(horizontal = 24.dp),
+                )
+                Text(
+                    song.artist,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    modifier = Modifier.basicMarquee(iterations = MARQUEE_PASSES, initialDelayMillis = 1_500).padding(horizontal = 24.dp),
+                )
+            }
         }
         AnimatedVisibility(
             visible = !nowPlaying.playing && nowPlaying.mediaId != null,
