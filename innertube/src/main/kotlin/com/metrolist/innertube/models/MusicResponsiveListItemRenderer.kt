@@ -30,13 +30,17 @@ data class MusicResponsiveListItemRenderer(
     val overlay: Overlay?,
     val navigationEndpoint: NavigationEndpoint?,
 ) {
+    // A row that opens a page (an album, artist or playlist) is not a song, even though its play
+    // button starts the first track; parsers check isSong before those types.
     val isSong: Boolean
-        get() = navigationEndpoint == null
-            || navigationEndpoint.watchEndpoint != null
-            || navigationEndpoint.watchPlaylistEndpoint != null
-            || overlay?.musicItemThumbnailOverlayRenderer
-                ?.content?.musicPlayButtonRenderer
-                ?.playNavigationEndpoint?.watchEndpoint != null
+        get() = navigationEndpoint?.browseEndpoint == null && (
+            navigationEndpoint == null
+                || navigationEndpoint.watchEndpoint != null
+                || navigationEndpoint.watchPlaylistEndpoint != null
+                || overlay?.musicItemThumbnailOverlayRenderer
+                    ?.content?.musicPlayButtonRenderer
+                    ?.playNavigationEndpoint?.watchEndpoint != null
+            )
     val isPlaylist: Boolean
         get() = navigationEndpoint?.browseEndpoint?.browseEndpointContextSupportedConfigs?.browseEndpointContextMusicConfig?.pageType == MUSIC_PAGE_TYPE_PLAYLIST
     val isAlbum: Boolean

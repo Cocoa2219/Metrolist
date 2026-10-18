@@ -25,6 +25,9 @@ import android.content.res.Configuration
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -210,7 +213,7 @@ import com.metrolist.music.constants.SleepTimerFadeOutKey
 import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
 
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun BottomSheetPlayer(
     state: BottomSheetState,
@@ -978,6 +981,7 @@ fun BottomSheetPlayer(
                     targetState = showInlineLyrics,
                     label = "ThumbnailAnimation",
                 ) { showLyrics ->
+                    val artworkScope = this
                     if (showLyrics) {
                         Row {
                             if (hidePlayerThumbnail) {
@@ -985,6 +989,7 @@ fun BottomSheetPlayer(
                                     modifier =
                                         Modifier
                                             .size(56.dp)
+                                            .playerArtwork(artworkScope)
                                             .clip(RoundedCornerShape(ThumbnailCornerRadius))
                                             .background(MaterialTheme.colorScheme.surfaceVariant),
                                     contentAlignment = Alignment.Center,
@@ -1006,6 +1011,7 @@ fun BottomSheetPlayer(
                                     modifier =
                                         Modifier
                                             .size(56.dp)
+                                            .playerArtwork(artworkScope)
                                             .clip(RoundedCornerShape(ThumbnailCornerRadius)),
                                 )
                             }
@@ -1865,129 +1871,138 @@ fun BottomSheetPlayer(
             }
         }
 
-        when (LocalConfiguration.current.orientation) {
-            Configuration.ORIENTATION_LANDSCAPE -> {
-                // Calculate vertical padding like OuterTune
-                val density = LocalDensity.current
-                val verticalPadding =
-                    max(
-                        WindowInsets.systemBars.getTop(density),
-                        WindowInsets.systemBars.getBottom(density),
-                    )
-                val verticalPaddingDp = with(density) { verticalPadding.toDp() }
-                val verticalWindowInsets = WindowInsets(left = 0.dp, top = verticalPaddingDp, right = 0.dp, bottom = verticalPaddingDp)
+        // Opening or closing lyrics morphs the large artwork into the small one beside the title.
+        SharedTransitionLayout {
+            CompositionLocalProvider(LocalPlayerSharedTransition provides this) {
+                when (LocalConfiguration.current.orientation) {
+                    Configuration.ORIENTATION_LANDSCAPE -> {
+                        // Calculate vertical padding like OuterTune
+                        val density = LocalDensity.current
+                        val verticalPadding =
+                            max(
+                                WindowInsets.systemBars.getTop(density),
+                                WindowInsets.systemBars.getBottom(density),
+                            )
+                        val verticalPaddingDp = with(density) { verticalPadding.toDp() }
+                        val verticalWindowInsets = WindowInsets(left = 0.dp, top = verticalPaddingDp, right = 0.dp, bottom = verticalPaddingDp)
 
-                Row(
-                    modifier =
-                        Modifier
-                            .windowInsetsPadding(
-                                WindowInsets.systemBars.only(WindowInsetsSides.Horizontal).add(verticalWindowInsets),
-                            ).padding(bottom = 24.dp)
-                            .fillMaxSize(),
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier =
-                            Modifier
-                                .weight(1f)
-                                .nestedScroll(state.preUpPostDownNestedScrollConnection),
-                    ) {
-                        // Remember lambdas to prevent unnecessary recomposition
-                        val currentSliderPosition by rememberUpdatedState(sliderPosition)
-                        val sliderPositionProvider = remember { { currentSliderPosition } }
-                        val isExpandedProvider = remember(state) { { state.isExpanded } }
-                        AnimatedContent(
-                            targetState = showInlineLyrics,
-                            label = "Lyrics",
-                            transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        ) { showLyrics ->
-                            if (showLyrics) {
-                                InlineLyricsView(
-                                    mediaMetadata = mediaMetadata,
-                                    showLyrics = showLyrics,
-                                    // Null lets the lyrics read the player every frame; only drags and Cast override it.
-                                    positionProvider = { sliderPosition ?: effectivePosition.takeIf { isCasting } },
-                                )
-                            } else {
-                                Thumbnail(
-                                    sliderPositionProvider = sliderPositionProvider,
-                                    modifier = Modifier.animateContentSize(),
-                                    isPlayerExpanded = isExpandedProvider,
-                                    isLandscape = true,
-                                    isListenTogetherGuest = isListenTogetherGuest,
-                                )
+                        Row(
+                            modifier =
+                                Modifier
+                                    .windowInsetsPadding(
+                                        WindowInsets.systemBars.only(WindowInsetsSides.Horizontal).add(verticalWindowInsets),
+                                    ).padding(bottom = 24.dp)
+                                    .fillMaxSize(),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier =
+                                    Modifier
+                                        .weight(1f)
+                                        .nestedScroll(state.preUpPostDownNestedScrollConnection),
+                            ) {
+                                // Remember lambdas to prevent unnecessary recomposition
+                                val currentSliderPosition by rememberUpdatedState(sliderPosition)
+                                val sliderPositionProvider = remember { { currentSliderPosition } }
+                                val isExpandedProvider = remember(state) { { state.isExpanded } }
+                                AnimatedContent(
+                                    targetState = showInlineLyrics,
+                                    label = "Lyrics",
+                                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                ) { showLyrics ->
+                                    if (showLyrics) {
+                                        InlineLyricsView(
+                                            mediaMetadata = mediaMetadata,
+                                            showLyrics = showLyrics,
+                                            // Null lets the lyrics read the player every frame; only drags and Cast override it.
+                                            positionProvider = { sliderPosition ?: effectivePosition.takeIf { isCasting } },
+                                        )
+                                    } else {
+                                        CompositionLocalProvider(LocalPlayerArtworkScope provides this) {
+                                            Thumbnail(
+                                                sliderPositionProvider = sliderPositionProvider,
+                                                modifier = Modifier.animateContentSize(),
+                                                isPlayerExpanded = isExpandedProvider,
+                                                isLandscape = true,
+                                                isListenTogetherGuest = isListenTogetherGuest,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier =
+                                    Modifier
+                                        .weight(if (showInlineLyrics) 0.65f else 1f, false)
+                                        .animateContentSize()
+                                        .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
+                            ) {
+                                Spacer(Modifier.weight(1f))
+
+                                mediaMetadata?.let {
+                                    controlsContent(it)
+                                }
+
+                                Spacer(Modifier.weight(1f))
                             }
                         }
                     }
 
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier =
-                            Modifier
-                                .weight(if (showInlineLyrics) 0.65f else 1f, false)
-                                .animateContentSize()
-                                .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Top)),
-                    ) {
-                        Spacer(Modifier.weight(1f))
-
-                        mediaMetadata?.let {
-                            controlsContent(it)
-                        }
-
-                        Spacer(Modifier.weight(1f))
-                    }
-                }
-            }
-
-            else -> {
-                val bottomPadding by animateDpAsState(
-                    targetValue = if (isFullScreen) 0.dp else queueSheetState.collapsedBound,
-                    label = "bottomPadding",
-                )
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier =
-                        Modifier
-                            .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
-                            .padding(bottom = bottomPadding)
-                            .animateContentSize(),
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        // Remember lambdas to prevent unnecessary recomposition
-                        val currentSliderPosition by rememberUpdatedState(sliderPosition)
-                        val sliderPositionProvider = remember { { currentSliderPosition } }
-                        val isExpandedProvider = remember(state) { { state.isExpanded } }
-                        AnimatedContent(
-                            targetState = showInlineLyrics,
-                            label = "Lyrics",
-                            transitionSpec = { fadeIn() togetherWith fadeOut() },
-                        ) { showLyrics ->
-                            if (showLyrics) {
-                                InlineLyricsView(
-                                    mediaMetadata = mediaMetadata,
-                                    showLyrics = showLyrics,
-                                    // Null lets the lyrics read the player every frame; only drags and Cast override it.
-                                    positionProvider = { sliderPosition ?: effectivePosition.takeIf { isCasting } },
-                                )
-                            } else {
-                                Thumbnail(
-                                    sliderPositionProvider = sliderPositionProvider,
-                                    modifier = Modifier.nestedScroll(state.preUpPostDownNestedScrollConnection),
-                                    isPlayerExpanded = isExpandedProvider,
-                                    isListenTogetherGuest = isListenTogetherGuest,
-                                )
+                    else -> {
+                        val bottomPadding by animateDpAsState(
+                            targetValue = if (isFullScreen) 0.dp else queueSheetState.collapsedBound,
+                            label = "bottomPadding",
+                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier =
+                                Modifier
+                                    .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal))
+                                    .padding(bottom = bottomPadding)
+                                    .animateContentSize(),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                // Remember lambdas to prevent unnecessary recomposition
+                                val currentSliderPosition by rememberUpdatedState(sliderPosition)
+                                val sliderPositionProvider = remember { { currentSliderPosition } }
+                                val isExpandedProvider = remember(state) { { state.isExpanded } }
+                                AnimatedContent(
+                                    targetState = showInlineLyrics,
+                                    label = "Lyrics",
+                                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                                ) { showLyrics ->
+                                    if (showLyrics) {
+                                        InlineLyricsView(
+                                            mediaMetadata = mediaMetadata,
+                                            showLyrics = showLyrics,
+                                            // Null lets the lyrics read the player every frame; only drags and Cast override it.
+                                            positionProvider = { sliderPosition ?: effectivePosition.takeIf { isCasting } },
+                                        )
+                                    } else {
+                                        CompositionLocalProvider(LocalPlayerArtworkScope provides this) {
+                                            Thumbnail(
+                                                sliderPositionProvider = sliderPositionProvider,
+                                                modifier = Modifier.nestedScroll(state.preUpPostDownNestedScrollConnection),
+                                                isPlayerExpanded = isExpandedProvider,
+                                                isListenTogetherGuest = isListenTogetherGuest,
+                                            )
+                                        }
+                                    }
+                                }
                             }
+
+                            mediaMetadata?.let {
+                                controlsContent(it)
+                            }
+
+                            Spacer(Modifier.height(30.dp))
                         }
                     }
-
-                    mediaMetadata?.let {
-                        controlsContent(it)
-                    }
-
-                    Spacer(Modifier.height(30.dp))
                 }
             }
         }

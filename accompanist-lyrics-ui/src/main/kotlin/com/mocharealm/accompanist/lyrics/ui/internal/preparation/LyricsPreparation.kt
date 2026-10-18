@@ -1,6 +1,8 @@
 // Modified by Metrolist: keeps a space between adjacent word captions, starts captions of
 // end-aligned words after their leading space, moves a caption that would be split across
-// wrapped rows to a line caption, and records where words sit without captions.
+// wrapped rows to a line caption, records where words sit without captions, times each
+// caption by the source syllables it reads, splits words only when wider than the full width,
+// never breaks rows inside a captioned syllable, and lets a caption span every part of its syllable.
 package com.mocharealm.accompanist.lyrics.ui.internal.preparation
 
 import com.mocharealm.accompanist.lyrics.ui.internal.text.*
@@ -209,11 +211,13 @@ private fun prepareLine(
                 run.profile,
                 buildList {
                     for (source in run.groups) {
+                        // Duet lines wrap at a narrower layout width, but a word that still fits
+                        // the full width overflows it as its own row instead of being split.
                         val fragments =
                             run.profile.wrap(
                                 run.profile.prepare(measuredLine, source, measurer, style),
                                 measurer,
-                                layoutWidth,
+                                width,
                             )
                         // A caption joined onto a group's first unit cannot follow its text onto
                         // later rows.
@@ -276,6 +280,19 @@ private fun prepareLine(
     }
     val phoneticSpaceWidth by lazy(LazyThreadSafetyMode.NONE) {
         measurer.measure(" ", animatedPhoneticStyle, softWrap = false).size.width.toFloat()
+    }
+    // A syllable split by script (2人 is 2 + 人) has its caption on the first group. The caption
+    // spans the following parts, so it widens the whole syllable rather than the first part alone.
+    fun sourceSyllable(unit: PreparedTextUnit) = measuredLine.sourceFor(unit.text.start, unit.text.end)?.source
+    val orderedGroups = runs.flatMap { it.groups }
+    for ((index, group) in orderedGroups.withIndex()) {
+        if (group.phoneticWidth <= 0f) continue
+        val source = group.units.lastOrNull()?.let(::sourceSyllable) ?: continue
+        for (next in orderedGroups.subList(index + 1, orderedGroups.size)) {
+            if (next.phoneticWidth > 0f || next.units.firstOrNull()?.let(::sourceSyllable) !== source) break
+            group.captionCredit += next.textWidth
+            next.captionOwner = group
+        }
     }
     val atoms = buildList {
         for (run in runs) for (group in run.groups) {
@@ -344,6 +361,11 @@ private fun prepareLine(
         val ends = mutableListOf<Int>()
         val lefts = mutableListOf<Float>()
         val rights = mutableListOf<Float>()
+        val captionGroups = mutableListOf<PreparedGroup>()
+        val captionStarts = mutableListOf<Int>()
+        val captionEnds = mutableListOf<Int>()
+        val captionLefts = mutableListOf<Float>()
+        val captionRights = mutableListOf<Float>()
         var start = Int.MAX_VALUE
         var end = Int.MIN_VALUE
         var sweepEnd = Int.MIN_VALUE
@@ -381,6 +403,14 @@ private fun prepareLine(
                             unitX,
                         unit.text.baseline + descent + phoneticGap,
                     )
+                unit.phonetic?.let { caption ->
+                    val captionLeft = unitX + unit.phoneticPosition.x
+                    captionGroups.add(group)
+                    captionStarts.add(unit.text.start)
+                    captionEnds.add(unit.text.end)
+                    captionLefts.add(captionLeft)
+                    captionRights.add(captionLeft + caption.size.width)
+                }
                 unit.animationStart =
                     if (unitEffects && group.units.size > 1)
                         group.start +
@@ -458,6 +488,24 @@ private fun prepareLine(
         }
         // Timing arrays are an index into physical geometry; hierarchy remains intact for drawing.
         val order = starts.indices.sortedBy { starts[it] }
+        // A caption is drawn on the first piece of its group, but a source syllable is split into
+        // pieces by character and by script, sometimes across groups (2人 is 2 + 人). The caption
+        // sweeps while every piece on this row of the syllables it reads is sung.
+        if (captionGroups.isNotEmpty()) {
+            val rowUnits = rowRuns.flatMap { run -> run.groups.flatMap { it.units } }
+            fun sourceOf(unit: PreparedTextUnit) = measuredLine.sourceFor(unit.text.start, unit.text.end)?.source
+            for (index in captionGroups.indices) {
+                // End-aligned lines move the previous syllable's space to the front of a group.
+                val sources = captionGroups[index].units
+                    .filterNot { it.isBlank() }
+                    .mapNotNullTo(HashSet()) { sourceOf(it) }
+                for (unit in rowUnits) if (sourceOf(unit) in sources) {
+                    captionStarts[index] = minOf(captionStarts[index], unit.text.start)
+                    captionEnds[index] = maxOf(captionEnds[index], unit.text.end)
+                }
+            }
+        }
+        val captionOrder = captionStarts.indices.sortedBy { captionStarts[it] }
         val mergedWindows = mutableListOf<RenderWindow>()
         for (window in windows.sortedBy { it.start }) {
             val previous = mergedWindows.lastOrNull()
@@ -492,6 +540,10 @@ private fun prepareLine(
                 sweepFadeWidth,
                 previousPhoneticSpacing,
                 width = rowWidth,
+                captionSweepStarts = IntArray(captionOrder.size) { captionStarts[captionOrder[it]] },
+                captionSweepEnds = IntArray(captionOrder.size) { captionEnds[captionOrder[it]] },
+                captionSweepLeft = FloatArray(captionOrder.size) { captionLefts[captionOrder[it]] },
+                captionSweepRight = FloatArray(captionOrder.size) { captionRights[captionOrder[it]] },
             )
         )
         previousPhoneticSpacing = if (hasPhonetics) wrappedRowSpacing else 0f
@@ -518,6 +570,15 @@ private fun prepareLine(
         }
         flushRow()
     }
+    // A syllable split by script (2人 is 2 + 人) keeps its caption on the first group; a break
+    // between the groups would leave the rest of it on the next row without its reading.
+    fun splitsCaptionedSyllable(before: PreparedAtom, after: PreparedAtom): Boolean {
+        val last = before.group.units.lastOrNull() ?: return false
+        val first = after.group.units.firstOrNull() ?: return false
+        val source = measuredLine.sourceFor(first.text.start, first.text.end)?.source ?: return false
+        return !source.phonetic.isNullOrBlank() &&
+            measuredLine.sourceFor(last.text.start, last.text.end)?.source === source
+    }
     var segmentStart = 0
     var rowsMatchTight = true
     for (index in atoms.indices) {
@@ -528,6 +589,7 @@ private fun prepareLine(
                 index,
                 layoutWidth,
                 style.localeList?.firstOrNull()?.toLanguageTag(),
+                ::splitsCaptionedSyllable,
                 ::appendRows,
             )
             segmentStart = index
@@ -539,6 +601,7 @@ private fun prepareLine(
         atoms.size,
         layoutWidth,
         style.localeList?.firstOrNull()?.toLanguageTag(),
+        ::splitsCaptionedSyllable,
         ::appendRows,
     )
     // Words can only slide to their caption-free places if those keep the same rows.
@@ -628,7 +691,8 @@ private fun phoneticWordGap(
     rtl: Boolean,
     spaceWidth: () -> Float,
 ): Float {
-    val before = previous.group
+    // After the last part of a syllable sharing a caption, the gap is measured from that caption.
+    val before = previous.group.captionOwner ?: previous.group
     val after = next.group
     if (before.phoneticWidth <= 0f || after.phoneticWidth <= 0f) return 0f
     // Captions align to their own script's reading edge, including within a mixed-direction row.
@@ -636,7 +700,7 @@ private fun phoneticWordGap(
     // trailing space, so the gap is measured between the captions themselves.
     val trailingSlack =
         if (previous.sourceText.isRtl(fallback = rtl) == rtl)
-            before.width - before.captionInset - before.phoneticWidth
+            before.width + before.captionCredit - before.captionInset - before.phoneticWidth
         else 0f
     val leadingSlack =
         if (next.sourceText.isRtl(fallback = rtl) != rtl) after.width - after.phoneticWidth
@@ -703,6 +767,7 @@ private fun appendBalancedRows(
     end: Int,
     maxWidth: Float,
     localeTag: String?,
+    keepTogether: (PreparedAtom, PreparedAtom) -> Boolean,
     appendRows: (Int, Int) -> Unit,
 ): Boolean {
     if (start >= end) return true
@@ -715,6 +780,7 @@ private fun appendBalancedRows(
     }
     val candidates = mutableListOf<LineBreakCandidate>()
     for (offset in 1 until end - start) {
+        if (keepTogether(atoms[start + offset - 1], atoms[start + offset])) continue
         val textOffset = atomOffsets[offset]
         val nextText = atoms[start + offset].sourceText
         var whitespaceEnd = textOffset
@@ -735,10 +801,14 @@ private fun appendBalancedRows(
         widths[index - start + 1] =
             widths[index - start] + atoms[index].phoneticGapBefore + atoms[index].group.width
     }
+    // A word wider than a duet line's layout width, though within the full width, takes a row
+    // of its own; counting it as exactly full keeps the rest of the line balanced.
+    fun rowWidth(from: Int, to: Int, measured: Float) =
+        if (to - from == 1) minOf(measured, maxWidth) else measured
     val selected =
         balancedLineBreaks(end - start, candidates, maxWidth) { from, to ->
             // A caption gap belongs between words, never before the first word of a new row.
-            widths[to] - widths[from] - atoms[start + from].phoneticGapBefore
+            rowWidth(from, to, widths[to] - widths[from] - atoms[start + from].phoneticGapBefore)
         }
     if (selected != null) {
         var rowStart = start
@@ -752,7 +822,7 @@ private fun appendBalancedRows(
         }
         return selected ==
             balancedLineBreaks(end - start, candidates, maxWidth) { from, to ->
-                tightWidths[to] - tightWidths[from]
+                rowWidth(from, to, tightWidths[to] - tightWidths[from])
             }
     }
 
@@ -773,6 +843,12 @@ private fun appendBalancedRows(
     }
     appendRows(rowStart, end)
     return false
+}
+
+private fun PreparedTextUnit.isBlank(): Boolean {
+    val text = text.layout.layoutInput.text.text
+    val range = this.text.sourceRange ?: return false
+    return range.min >= 0 && range.max <= text.length && text.substring(range.min, range.max).isBlank()
 }
 
 private fun PreparedGroup.preparedSourceText(): String =

@@ -1050,4 +1050,7 @@
     <string name="clear_saved_translations">Clear saved translations</string>
     <string name="clear_saved_translations_desc">Deletes the AI translations saved for every song</string>
     <string name="clear_saved_translations_confirm">Delete the AI translations saved for every song? Translating again will make new requests.</string>
+    <string name="lyrics_translation">Translation</string>
+    <string name="translation_from_lyrics">From lyrics</string>
+    <string name="translate_with_ai">Translate with AI</string>
 </resources>

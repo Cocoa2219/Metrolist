@@ -1,4 +1,5 @@
-// Modified by Metrolist: slides words toward their caption-free places by tightness, fading captions.
+// Modified by Metrolist: slides words toward their caption-free places by tightness, fading captions;
+// captions sweep on their own track.
 package com.mocharealm.accompanist.lyrics.ui.internal.rendering
 
 import androidx.compose.ui.geometry.Offset
@@ -168,7 +169,8 @@ internal fun DrawScope.drawPreparedRow(
                 }
             }
             if (masked) {
-                val center = state.sweepCenter(time)
+                // A caption wider than its word would jump if it followed the word's sweep.
+                val center = if (drawOriginal) state.sweepCenter(time) else state.captionSweepCenter(time)
                 // A canvas translation reuses the fixed-width shader on both Android and Skia.
                 translate(left = center) {
                     drawRect(

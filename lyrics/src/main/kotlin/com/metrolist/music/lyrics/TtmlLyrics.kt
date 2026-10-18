@@ -33,8 +33,16 @@ object TtmlLyrics {
     private val GENERATED_TRANSLITERATION =
         Regex("""<transliteration\b[^>]*automaticallyCreated="true"[^>]*>.*?</transliteration>""", RegexOption.DOT_MATCHES_ALL)
 
+    // A line's transliteration nests its background vocals like the body does, and the parser
+    // appends them to the main line's last syllable caption. They are dropped there; background
+    // lines in a script needing romanization get Metrolist's own.
+    private val TRANSLITERATIONS = Regex("""<transliterations\b.*?</transliterations>""", RegexOption.DOT_MATCHES_ALL)
+    private val BACKGROUND_SPAN =
+        Regex("""<span\b[^>]*ttm:role="x-bg"[^>]*>(?:\s*<span\b[^>]*>[^<]*</span>)*\s*</span>""")
+
     fun parse(ttml: String): List<LyricsEntry> {
         val source = ttml.replace(LRC_KEY, " itunes:key=").replace(GENERATED_TRANSLITERATION, "")
+            .replace(TRANSLITERATIONS) { it.value.replace(BACKGROUND_SPAN, "") }
         val lyrics = runCatching { parser.parse(source) }
             .onFailure { Timber.w(it, "Failed to parse TTML") }
             .getOrNull() ?: return emptyList()
@@ -54,28 +62,58 @@ object TtmlLyrics {
     }
 
     private fun KaraokeLine.toEntry(agent: String, isBackground: Boolean): LyricsEntry {
-        val words = syllables.map { it.toWord() }
-        return entry(
-            start, words.joinToString("") { word -> if (word.hasTrailingSpace) "${word.text} " else word.text }.trim(),
-            words, agent, isBackground, translation, phonetic ?: joinedPhonetic(syllables),
-        )
+        val captions = captions(syllables)
+        val words = syllables.mapIndexed { index, syllable -> syllable.toWord(captions[index]) }
+        val text = words.joinToString("") { word -> if (word.hasTrailingSpace) "${word.text} " else word.text }.trim()
+        val romanization = phonetic?.takeIf { LyricsUtils.needsRomanization(text) } ?: joinedCaption(syllables, captions)
+        return entry(start, text, words, agent, isBackground, translation, romanization)
     }
 
-    private fun KaraokeSyllable.toWord() = WordTimestamp(
+    private fun KaraokeSyllable.toWord(caption: String?) = WordTimestamp(
         text = content.trimEnd(),
         startTime = start / 1000.0,
         endTime = end / 1000.0,
         hasTrailingSpace = content.lastOrNull()?.isWhitespace() == true,
-        phonetic = phonetic?.takeIf { it.isNotBlank() },
+        phonetic = caption,
     )
 
-    private fun joinedPhonetic(syllables: List<KaraokeSyllable>): String? = buildString {
-        for (syllable in syllables) {
-            val caption = syllable.phonetic?.takeIf { it.isNotBlank() } ?: continue
+    /**
+     * Sources "transliterate" words that need none (English, or Korean in a Japanese song) as the
+     * text itself. A line in the Latin script keeps no captions. Otherwise every word needs one:
+     * a line with any caption gets none from the phonetics provider, so copied words in another
+     * script are romanized here and Latin words are kept as they are.
+     */
+    private fun captions(syllables: List<KaraokeSyllable>): List<String?> {
+        val text = syllables.joinToString("") { it.content }
+        if (!LyricsUtils.needsRomanization(text) || syllables.none { !it.phonetic.isNullOrBlank() }) {
+            return syllables.map { null }
+        }
+        val tag = if (text.any { it in '\u3040'..'\u30FF' }) LyricsPhonetics.JAPANESE else LyricsPhonetics.chineseTag()
+        return syllables.map { syllable ->
+            val content = syllable.content.trim()
+            val source = syllable.phonetic?.takeIf { it.isNotBlank() }
+            when {
+                content.isEmpty() -> source
+                source != null && !sameText(source, content) -> source
+                !LyricsUtils.needsRomanization(content) -> content
+                else -> LyricsPhonetics.romanize(content, if (content.any(::isHangul)) LyricsPhonetics.KOREAN else tag)
+                    .takeIf { it.isNotBlank() && !sameText(it, content) }
+            }
+        }
+    }
+
+    private fun joinedCaption(syllables: List<KaraokeSyllable>, captions: List<String?>): String? = buildString {
+        for ((index, syllable) in syllables.withIndex()) {
+            val caption = captions[index] ?: continue
             if (isNotEmpty()) append(syllable.phoneticSeparatorBefore.ifEmpty { " " })
             append(caption)
         }
     }.ifBlank { null }
+
+    private fun isHangul(char: Char) = char in '\uAC00'..'\uD7A3' || char in '\u1100'..'\u11FF' || char in '\u3130'..'\u318F'
+
+    private fun sameText(caption: String, text: String) =
+        caption.filterNot(Char::isWhitespace) == text.filterNot(Char::isWhitespace)
 
     private fun entry(
         start: Int, text: String, words: List<WordTimestamp>?, agent: String, isBackground: Boolean,
@@ -90,7 +128,9 @@ object TtmlLyrics {
             agent = agent,
             isBackground = isBackground,
             sourceTranslation = sourceTranslation,
-            sourceRomanization = romanization?.takeIf { it.isNotBlank() },
+            sourceRomanization = romanization?.takeIf {
+                it.isNotBlank() && LyricsUtils.needsRomanization(text) && !sameText(it, text)
+            },
         )
     }
 }

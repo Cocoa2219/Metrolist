@@ -20,8 +20,8 @@ data class StoredTranslation(
 )
 
 /**
- * Every translation made for a song, the one chosen for display, and whether it is shown.
- * [selected] is -1 when only the translation the lyrics came with (if any) is shown.
+ * Every translation made for a song, the one chosen for display, and whether translations are
+ * shown at all. [selected] is -1 for the translation the lyrics came with, if any.
  */
 @Serializable
 data class StoredTranslations(
@@ -70,7 +70,9 @@ fun LyricsEntity.storedTranslations(): StoredTranslations {
 }
 
 fun LyricsEntity.withTranslations(translations: StoredTranslations): LyricsEntity {
-    if (translations.translations.isEmpty()) return copy(translatedLyrics = "", translationLanguage = "", translationMode = "")
+    // Only the default record is left empty; "off" must be kept even without AI translations, for
+    // lyrics that come with their own.
+    if (translations == StoredTranslations()) return copy(translatedLyrics = "", translationLanguage = "", translationMode = "")
     val active = translations.translations.getOrNull(translations.selected)
     return copy(
         translatedLyrics = json.encodeToString(StoredTranslations.serializer(), translations),
