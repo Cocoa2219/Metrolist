@@ -24,8 +24,8 @@ internal fun List<Track>.bestMatchingFor(duration: Int): Track? {
         ?.takeIf { abs(it.duration.toInt() - duration) <= 2 }
 }
 
-// Relaxed matching with ±5 seconds tolerance
-internal fun List<Track>.bestMatchingForRelaxed(duration: Int): Track? {
+// Relaxed matching within [tolerance] seconds (±5 by default)
+internal fun List<Track>.bestMatchingForRelaxed(duration: Int, tolerance: Int = 5): Track? {
     if (isEmpty()) return null
 
     if (duration == -1) {
@@ -35,13 +35,13 @@ internal fun List<Track>.bestMatchingForRelaxed(duration: Int): Track? {
     // First try to find synced lyrics within tolerance
     val syncedMatch = filter { it.syncedLyrics != null }
         .minByOrNull { abs(it.duration.toInt() - duration) }
-        ?.takeIf { abs(it.duration.toInt() - duration) <= 5 }
+        ?.takeIf { abs(it.duration.toInt() - duration) <= tolerance }
     
     if (syncedMatch != null) return syncedMatch
     
     // Fall back to any lyrics within tolerance
     return minByOrNull { abs(it.duration.toInt() - duration) }
-        ?.takeIf { abs(it.duration.toInt() - duration) <= 5 }
+        ?.takeIf { abs(it.duration.toInt() - duration) <= tolerance }
 }
 
 internal fun List<Track>.bestMatchingFor(

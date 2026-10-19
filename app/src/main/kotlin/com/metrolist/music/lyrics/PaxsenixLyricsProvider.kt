@@ -32,9 +32,14 @@ object PaxsenixLyricsProvider : LyricsProvider {
         try {
             Paxsenix.init(context)
             // Apple's catalog often lists K-pop and J-pop under English names.
-            val result = Paxsenix.getLyrics(title, artist, duration, album).recoverCatching { error ->
+            val match = context.durationMatch(name)
+            val result = Paxsenix.getLyrics(
+                title, artist, duration, album, match.required, match.toleranceSeconds,
+            ).recoverCatching { error ->
                 val english = EnglishSongNames.get(id, title, artist) ?: throw error
-                Paxsenix.getLyrics(english.title, english.artist, duration, english.album ?: album).getOrThrow()
+                Paxsenix.getLyrics(
+                    english.title, english.artist, duration, english.album ?: album, match.required, match.toleranceSeconds,
+                ).getOrThrow()
             }
 
             result.onSuccess { lyrics ->
@@ -62,7 +67,8 @@ object PaxsenixLyricsProvider : LyricsProvider {
         Timber.tag(TAG).d("getAllLyrics called")
         try {
             Paxsenix.init(context)
-            Paxsenix.getAllLyrics(title, artist, duration, album, callback)
+            val match = context.durationMatch(name)
+            Paxsenix.getAllLyrics(title, artist, duration, album, callback, match.required, match.toleranceSeconds)
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error fetching lyrics from Paxsenix")
             callback("")

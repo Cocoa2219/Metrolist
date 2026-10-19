@@ -1053,4 +1053,17 @@
     <string name="lyrics_translation">Translation</string>
     <string name="translation_from_lyrics">From lyrics</string>
     <string name="translate_with_ai">Translate with AI</string>
+    <string name="lyrics_search_isrc">ISRC (optional)</string>
+    <string name="lyrics_search_isrc_hint">Finds lrc.red lyrics for that exact recording</string>
+    <string name="lyrics_search_isrc_invalid">Not a valid ISRC, e.g. JPPO01804003</string>
+    <string name="lyrics_matching">Lyrics matching</string>
+    <string name="lyrics_matching_desc">How closely search results must match the song</string>
+    <string name="lyrics_matching_all_providers">All providers</string>
+    <string name="lyrics_matching_per_provider">Per provider</string>
+    <string name="lyrics_matching_uses_global">Uses the rule for all providers</string>
+    <string name="lyrics_matching_any_duration">Any duration</string>
+    <string name="lyrics_require_duration">Require duration match</string>
+    <string name="lyrics_require_duration_desc">Skip results whose length differs from the song by more than the tolerance</string>
+    <string name="lyrics_duration_tolerance">Duration tolerance</string>
+    <string name="lyrics_duration_tolerance_value">±%d s</string>
 </resources>

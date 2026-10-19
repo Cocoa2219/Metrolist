@@ -53,6 +53,7 @@ import com.metrolist.music.ui.screens.settings.ContentSettings
 import com.metrolist.music.ui.screens.settings.DarkMode
 import com.metrolist.music.ui.screens.settings.PlayerSettings
 import com.metrolist.music.ui.screens.settings.PrivacySettings
+import com.metrolist.music.ui.screens.settings.LyricsMatchingSettings
 import com.metrolist.music.ui.screens.settings.RomanizationSettings
 import com.metrolist.music.ui.screens.settings.SettingsScreen
 import com.metrolist.music.ui.screens.settings.StorageSettings
@@ -371,6 +372,10 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/content/romanization") {
         RomanizationSettings(navController)
+    }
+
+    composable("settings/content/lyrics_matching") {
+        LyricsMatchingSettings(navController)
     }
 
     composable("settings/ai") {

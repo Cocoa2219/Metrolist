@@ -188,6 +188,8 @@ object Paxsenix {
         artist: String,
         duration: Int,
         album: String? = null,
+        requireDuration: Boolean = true,
+        toleranceSeconds: Int = 10,
     ): Result<String> = runCatching {
         val cleanedTitle = cleanTitle(title)
         val cleanedArtist = cleanArtist(artist)
@@ -212,7 +214,7 @@ object Paxsenix {
                 val searchResults = search(query)
                 
                 if (searchResults.isNotEmpty()) {
-                    allResults = scoreAndFilterResults(searchResults, title, artist, duration)
+                    allResults = scoreAndFilterResults(searchResults, title, artist, duration, requireDuration, toleranceSeconds)
                 }
             }
         }
@@ -269,9 +271,10 @@ object Paxsenix {
         results: List<SearchResult>,
         title: String,
         artist: String,
-        duration: Int
+        duration: Int,
+        requireDuration: Boolean,
+        toleranceSeconds: Int,
     ): List<Pair<SearchResult, Double>> {
-        val durationMs = duration * 1000
         val cleanupRegex = Regex("""\s*\(.*?\)|\s*\[.*?\]""")
         
         // Cleaned versions for fuzzy matching
@@ -282,19 +285,19 @@ object Paxsenix {
         val targetIsMixed = title.contains("mixed", ignoreCase = true)
         val targetIsRemix = title.contains("remix", ignoreCase = true)
         
-        return results.map { result ->
+        return results.mapNotNull { result ->
             var score = 0.0
             
             val resultTitle = result.displayName
             val resultArtist = result.displayArtist
             
-            result.duration?.let { d ->
-                val diff = abs(d - durationMs)
+            // Result durations are in seconds, like the song's.
+            result.duration?.takeIf { duration > 0 }?.let { d ->
+                val diff = abs(d - duration)
                 when {
-                    diff <= 2000 -> score += 100 // Excellent match
-                    diff <= 5000 -> score += 50  // Good match
-                    diff <= 10000 -> score += 10 // Acceptable match
-                    else -> score -= 50          // Likely wrong version (Mixed/Edit/etc)
+                    diff <= 2 -> score += 100 // Excellent match
+                    diff <= toleranceSeconds -> score += 50
+                    requireDuration -> return@mapNotNull null // Another version (live, edit, mix)
                 }
             }
             
@@ -417,6 +420,8 @@ object Paxsenix {
         duration: Int,
         album: String? = null,
         callback: (String) -> Unit,
+        requireDuration: Boolean = true,
+        toleranceSeconds: Int = 10,
     ) {
         val cleanedTitle = cleanTitle(title)
         val cleanedArtist = cleanArtist(artist)
@@ -433,7 +438,7 @@ object Paxsenix {
             val results = search(query)
             if (results.isEmpty()) continue
 
-            val filtered = scoreAndFilterResults(results, title, artist, duration)
+            val filtered = scoreAndFilterResults(results, title, artist, duration, requireDuration, toleranceSeconds)
             if (filtered.isNotEmpty()) {
                 scoredResults = filtered
                 break@searchLoop
