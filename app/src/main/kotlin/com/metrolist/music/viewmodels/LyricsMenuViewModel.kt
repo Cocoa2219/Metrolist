@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.LyricsEntity
 import com.metrolist.music.lyrics.LyricsHelper
+import com.metrolist.music.lyrics.LrcRedLyricsProvider
 import com.metrolist.music.lyrics.LyricsResult
 import com.metrolist.music.models.MediaMetadata
 import com.metrolist.music.utils.NetworkConnectivityObserver
@@ -59,12 +60,19 @@ constructor(
         artist: String,
         duration: Int,
         album: String? = null,
+        isrc: String? = null,
     ) {
         isLoading.value = true
         results.value = emptyList()
         job?.cancel()
         job =
             viewModelScope.launch(Dispatchers.IO) {
+                // An ISRC the user typed names the exact recording, so its lyrics come first.
+                if (isrc != null) {
+                    LrcRedLyricsProvider.getLyricsByIsrc(isrc).onSuccess { lyrics ->
+                        results.update { it + LyricsResult(LrcRedLyricsProvider.name, lyrics) }
+                    }
+                }
                 lyricsHelper.getAllLyrics(mediaId, title, artist, duration, album) { result ->
                     results.update {
                         it + result

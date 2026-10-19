@@ -167,6 +167,13 @@ object LrcMuxLyricsProvider : LyricsProvider {
 }
 
 /** lrc.red: Apple Music's TTML by ISRC, found through its site search. */
+/** An ISRC typed with optional hyphens or spaces (JP-PO0-18-04003), normalized, or null if invalid. */
+fun normalizeIsrc(input: String): String? =
+    input.filterNot { it == '-' || it.isWhitespace() }.uppercase(Locale.ROOT)
+        .takeIf { it.matches(ISRC) }
+
+private val ISRC = Regex("""[A-Z]{2}[A-Z0-9]{3}\d{7}""")
+
 object LrcRedLyricsProvider : LyricsProvider {
     override val name = "LrcRed"
     private const val TAG = "LrcRed"
@@ -191,6 +198,13 @@ object LrcRedLyricsProvider : LyricsProvider {
                 }
             }
             ?: error("Lyrics unavailable")
+        fetchTtml(isrc)
+    }
+
+    /** Lyrics for a recording the user identified by its ISRC, skipping the title search. */
+    suspend fun getLyricsByIsrc(isrc: String): Result<String> = runCatching { fetchTtml(isrc) }
+
+    private suspend fun fetchTtml(isrc: String): String {
         val response = client.get("$BASE/s/$isrc.ttml")
         if (!response.status.isSuccess()) {
             Timber.tag(TAG).w("TTML for $isrc returned ${response.status}")
@@ -198,7 +212,7 @@ object LrcRedLyricsProvider : LyricsProvider {
         }
         val ttml = response.bodyAsText()
         Timber.tag(TAG).d("Got TTML for $isrc (${ttml.length} chars)")
-        checkedTtml(ttml)
+        return checkedTtml(ttml)
     }
 
     // YouTube Music titles many J-pop songs "Original - Romanized" in every locale.

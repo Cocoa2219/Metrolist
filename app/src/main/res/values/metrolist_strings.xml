@@ -1053,4 +1053,7 @@
     <string name="lyrics_translation">Translation</string>
     <string name="translation_from_lyrics">From lyrics</string>
     <string name="translate_with_ai">Translate with AI</string>
+    <string name="lyrics_search_isrc">ISRC (optional)</string>
+    <string name="lyrics_search_isrc_hint">Finds lrc.red lyrics for that exact recording</string>
+    <string name="lyrics_search_isrc_invalid">Not a valid ISRC, e.g. JPPO01804003</string>
 </resources>
