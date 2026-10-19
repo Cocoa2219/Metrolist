@@ -140,6 +140,7 @@ object LrcLib {
         artist: String,
         duration: Int,
         album: String? = null,
+        tolerance: Int = 5,
     ) = runCatching {
         val tracks = queryLyrics(artist, title, album)
         val cleanedTitle = cleanTitle(title)
@@ -152,8 +153,8 @@ object LrcLib {
                 }?.let(LrcLib::Lyrics)
             }
             else -> {
-                // Try with relaxed duration matching (±5 seconds instead of ±2)
-                tracks.bestMatchingForRelaxed(duration)?.let { track ->
+                // Try with relaxed duration matching (±tolerance seconds instead of ±2)
+                tracks.bestMatchingForRelaxed(duration, tolerance)?.let { track ->
                     track.syncedLyrics ?: track.plainLyrics
                 }?.let(LrcLib::Lyrics)
             }
@@ -172,6 +173,7 @@ object LrcLib {
         duration: Int,
         album: String? = null,
         callback: (String) -> Unit,
+        tolerance: Int = 5,
     ) {
         val tracks = queryLyrics(artist, title, album)
         val cleanedTitle = cleanTitle(title)
@@ -205,12 +207,12 @@ object LrcLib {
                     count++
                     track.syncedLyrics.let(callback)
                 } else {
-                    // Relaxed duration matching (±5 seconds)
-                    if (track.syncedLyrics != null && abs(track.duration.toInt() - duration) <= 5) {
+                    // Relaxed duration matching (±tolerance seconds)
+                    if (track.syncedLyrics != null && abs(track.duration.toInt() - duration) <= tolerance) {
                         count++
                         track.syncedLyrics.let(callback)
                     }
-                    if (track.plainLyrics != null && abs(track.duration.toInt() - duration) <= 5 && plain == 0) {
+                    if (track.plainLyrics != null && abs(track.duration.toInt() - duration) <= tolerance && plain == 0) {
                         count++
                         plain++
                         track.plainLyrics.let(callback)

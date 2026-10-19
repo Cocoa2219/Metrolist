@@ -34,7 +34,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import java.util.Locale
-import kotlin.math.abs
 import timber.log.Timber
 
 // Sources whose public APIs are open to any client. TTML is stored as sent; LRCMux's word JSON
@@ -109,7 +108,6 @@ object AmllLyricsProvider : LyricsProvider {
 object UnisonLyricsProvider : LyricsProvider {
     override val name = "Unison"
     private const val BASE = "https://unison.boidu.dev/lyrics"
-    private const val DURATION_TOLERANCE_S = 5
 
     override fun isEnabled(context: Context) = context.dataStore[EnableUnisonKey] ?: true
 
@@ -121,8 +119,7 @@ object UnisonLyricsProvider : LyricsProvider {
                 parameter("song", title)
                 parameter("artist", artist)
             }?.get("data")?.jsonObject?.takeIf { found ->
-                val foundDuration = found["duration"]?.jsonPrimitive?.longOrNull
-                duration <= 0 || foundDuration == null || abs(foundDuration - duration) <= DURATION_TOLERANCE_S
+                context.durationMatch(name).accepts(duration, found["duration"]?.jsonPrimitive?.longOrNull)
             }
             ?: error("Lyrics unavailable")
         val lyrics = data["lyrics"].string()?.takeIf(String::isNotBlank) ?: error("Lyrics unavailable")
@@ -178,7 +175,6 @@ object LrcRedLyricsProvider : LyricsProvider {
     override val name = "LrcRed"
     private const val TAG = "LrcRed"
     private const val BASE = "https://lrc.red"
-    private const val DURATION_TOLERANCE_S = 3.0
 
     override fun isEnabled(context: Context) = context.dataStore[EnableLrcRedKey] ?: true
 
@@ -186,7 +182,8 @@ object LrcRedLyricsProvider : LyricsProvider {
         context: Context, id: String, title: String, artist: String, duration: Int, album: String?,
     ): Result<String> = runCatching {
         Timber.tag(TAG).d("Looking up '$title' by '$artist' (album='$album', duration=${duration}s, video=$id)")
-        val isrc = findIsrc(title, artist, album, duration)
+        val match = context.durationMatch(name)
+        val isrc = findIsrc(title, artist, album, duration, match)
             ?: run {
                 val english = EnglishSongNames.get(id, title, artist)
                 if (english == null) {
@@ -194,7 +191,7 @@ object LrcRedLyricsProvider : LyricsProvider {
                     null
                 } else {
                     Timber.tag(TAG).d("Retrying with English names: '${english.title}' by '${english.artist}' (album='${english.album}')")
-                    findIsrc(english.title, english.artist, english.album ?: album, duration)
+                    findIsrc(english.title, english.artist, english.album ?: album, duration, match)
                 }
             }
             ?: error("Lyrics unavailable")
@@ -223,7 +220,9 @@ object LrcRedLyricsProvider : LyricsProvider {
      * knows the romanized one. The album's track list catches a title Apple lists differently;
      * only the exact album counts there, since a live album repeats the songs at similar lengths.
      */
-    private suspend fun findIsrc(title: String, artist: String, album: String?, duration: Int): String? {
+    private suspend fun findIsrc(
+        title: String, artist: String, album: String?, duration: Int, match: DurationMatch,
+    ): String? {
         /** Why a hit does not fit, or null when it does. */
         fun JsonObject.mismatch(wanted: String?, requireArtist: Boolean): String? {
             val hitTitle = this["title"].string().orEmpty()
@@ -234,9 +233,8 @@ object LrcRedLyricsProvider : LyricsProvider {
                 wanted == null && matchKey(album.orEmpty()) != matchKey(this["album"].string().orEmpty()) -> "album '${this["album"].string()}'"
                 requireArtist && !sharesArtist(artist, hitArtist) -> "artist '$hitArtist'"
                 // Without the artist, the length is what tells the song from others of its name.
-                !requireArtist && (duration <= 0 || hitDuration == null) -> "no duration to compare"
-                duration > 0 && hitDuration != null && abs(hitDuration - duration) > DURATION_TOLERANCE_S ->
-                    "duration ${hitDuration}s"
+                !requireArtist && (!match.required || duration <= 0 || hitDuration == null) -> "no duration to compare"
+                !match.accepts(duration, hitDuration) -> "duration ${hitDuration}s"
                 else -> null
             }
         }

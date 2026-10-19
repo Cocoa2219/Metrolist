@@ -94,6 +94,14 @@ val EnableAmllKey = booleanPreferencesKey("enableAmll")
 val EnableUnisonKey = booleanPreferencesKey("enableUnison")
 val EnableLrcMuxKey = booleanPreferencesKey("enableLrcMux")
 val EnableLrcRedKey = booleanPreferencesKey("enableLrcRed")
+
+// How lyrics search results must match the song; providers can override the global rule.
+val LyricsRequireDurationMatchKey = booleanPreferencesKey("lyricsRequireDurationMatch")
+val LyricsDurationToleranceKey = floatPreferencesKey("lyricsDurationTolerance")
+const val LyricsDurationToleranceDefault = 5f
+fun lyricsMatchOverrideKey(provider: String) = booleanPreferencesKey("lyricsMatchOverride_$provider")
+fun lyricsRequireDurationMatchKey(provider: String) = booleanPreferencesKey("lyricsRequireDurationMatch_$provider")
+fun lyricsDurationToleranceKey(provider: String) = floatPreferencesKey("lyricsDurationTolerance_$provider")
 val HideExplicitKey = booleanPreferencesKey("hideExplicit")
 val HideVideoSongsKey = booleanPreferencesKey("hideVideoSongs")
 val HideYoutubeShortsKey = booleanPreferencesKey("hideYoutubeShorts")
