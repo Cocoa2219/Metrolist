@@ -27,13 +27,15 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.R
+import com.metrolist.music.constants.LyricsAlbumFallbackKey
 import com.metrolist.music.constants.LyricsDurationToleranceDefault
-import com.metrolist.music.constants.LyricsDurationToleranceKey
-import com.metrolist.music.constants.LyricsRequireDurationMatchKey
+import com.metrolist.music.constants.LyricsEnglishNameRetryKey
+import com.metrolist.music.constants.LyricsTitlePartSearchKey
 import com.metrolist.music.constants.lyricsDurationToleranceKey
 import com.metrolist.music.constants.lyricsMatchOverrideKey
-import com.metrolist.music.constants.lyricsRequireDurationMatchKey
-import com.metrolist.music.lyrics.DurationMatchedProviders
+import com.metrolist.music.constants.lyricsMatchRuleKey
+import com.metrolist.music.lyrics.MatchRule
+import com.metrolist.music.lyrics.ProviderMatchRules
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
@@ -44,15 +46,42 @@ import kotlin.math.roundToInt
 private val ToleranceRange = 1f..15f
 private const val ToleranceSteps = 13
 
+private val MatchRule.icon
+    get() = when (this) {
+        MatchRule.ExactTitle -> R.drawable.music_note
+        MatchRule.MatchArtist -> R.drawable.artist
+        MatchRule.SkipOtherVersions -> R.drawable.mic
+        MatchRule.MatchDuration -> R.drawable.timer
+    }
+
+private val MatchRule.title
+    get() = when (this) {
+        MatchRule.ExactTitle -> R.string.lyrics_match_exact_title
+        MatchRule.MatchArtist -> R.string.lyrics_match_artist
+        MatchRule.SkipOtherVersions -> R.string.lyrics_skip_other_versions
+        MatchRule.MatchDuration -> R.string.lyrics_require_duration
+    }
+
+private val MatchRule.description
+    get() = when (this) {
+        MatchRule.ExactTitle -> R.string.lyrics_match_exact_title_desc
+        MatchRule.MatchArtist -> R.string.lyrics_match_artist_desc
+        MatchRule.SkipOtherVersions -> R.string.lyrics_skip_other_versions_desc
+        MatchRule.MatchDuration -> R.string.lyrics_require_duration_desc
+    }
+
 /**
- * How closely a lyrics search result must match the song. One rule covers every provider that
- * compares lengths; a provider can use its own instead.
+ * Which lyrics search results count as the song. The rules cover every provider that applies them;
+ * a provider can use its own instead.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LyricsMatchingSettings(navController: NavController) {
-    val requireDuration = rememberPreference(LyricsRequireDurationMatchKey, true)
-    val tolerance = rememberPreference(LyricsDurationToleranceKey, LyricsDurationToleranceDefault)
+    val globalRules = MatchRule.entries.associateWith { rememberPreference(lyricsMatchRuleKey(it.id), true) }
+    val tolerance = rememberPreference(lyricsDurationToleranceKey(), LyricsDurationToleranceDefault)
+    val englishNames = rememberPreference(LyricsEnglishNameRetryKey, true)
+    val titleParts = rememberPreference(LyricsTitlePartSearchKey, true)
+    val albumFallback = rememberPreference(LyricsAlbumFallbackKey, true)
     val secondsFormat = stringResource(R.string.lyrics_duration_tolerance_value)
     val secondsLabel: (Float) -> String = { secondsFormat.format(it.roundToInt()) }
 
@@ -64,12 +93,27 @@ fun LyricsMatchingSettings(navController: NavController) {
     ) {
         Material3SettingsGroup(
             title = stringResource(R.string.lyrics_matching_all_providers),
+            items = buildList {
+                for ((rule, preference) in globalRules) {
+                    add(switchItem(rule.icon, rule.title, rule.description, preference))
+                }
+                add(
+                    sliderItem(
+                        R.drawable.tune, R.string.lyrics_duration_tolerance, tolerance, ToleranceRange, ToleranceSteps,
+                        enabled = globalRules.getValue(MatchRule.MatchDuration).value, label = secondsLabel,
+                    ),
+                )
+            },
+        )
+
+        Spacer(Modifier.height(27.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.lyrics_search_strategies),
             items = listOf(
-                switchItem(R.drawable.timer, R.string.lyrics_require_duration, R.string.lyrics_require_duration_desc, requireDuration),
-                sliderItem(
-                    R.drawable.tune, R.string.lyrics_duration_tolerance, tolerance, ToleranceRange, ToleranceSteps,
-                    enabled = requireDuration.value, label = secondsLabel,
-                ),
+                switchItem(R.drawable.translate, R.string.lyrics_english_name_retry, R.string.lyrics_english_name_retry_desc, englishNames),
+                switchItem(R.drawable.format_align_left, R.string.lyrics_title_part_search, R.string.lyrics_title_part_search_desc, titleParts),
+                switchItem(R.drawable.album, R.string.lyrics_album_fallback, R.string.lyrics_album_fallback_desc, albumFallback),
             ),
         )
 
@@ -78,9 +122,11 @@ fun LyricsMatchingSettings(navController: NavController) {
         Material3SettingsGroup(
             title = stringResource(R.string.lyrics_matching_per_provider),
             items = buildList {
-                for (provider in DurationMatchedProviders) {
+                for ((provider, rules) in ProviderMatchRules) {
                     val custom = rememberPreference(lyricsMatchOverrideKey(provider), false)
-                    val providerRequire = rememberPreference(lyricsRequireDurationMatchKey(provider), requireDuration.value)
+                    val providerRules = rules.associateWith {
+                        rememberPreference(lyricsMatchRuleKey(it.id, provider), globalRules.getValue(it).value)
+                    }
                     val providerTolerance = rememberPreference(lyricsDurationToleranceKey(provider), tolerance.value)
                     add(
                         Material3SettingsItem(
@@ -88,11 +134,9 @@ fun LyricsMatchingSettings(navController: NavController) {
                             title = { Text(provider) },
                             description = {
                                 Text(
-                                    when {
-                                        !custom.value -> stringResource(R.string.lyrics_matching_uses_global)
-                                        !providerRequire.value -> stringResource(R.string.lyrics_matching_any_duration)
-                                        else -> secondsLabel(providerTolerance.value)
-                                    },
+                                    stringResource(
+                                        if (custom.value) R.string.lyrics_matching_custom else R.string.lyrics_matching_uses_global,
+                                    ),
                                 )
                             },
                             trailingContent = {
@@ -112,13 +156,17 @@ fun LyricsMatchingSettings(navController: NavController) {
                         ),
                     )
                     if (custom.value) {
-                        add(switchItem(R.drawable.timer, R.string.lyrics_require_duration, null, providerRequire))
-                        add(
-                            sliderItem(
-                                R.drawable.tune, R.string.lyrics_duration_tolerance, providerTolerance, ToleranceRange,
-                                ToleranceSteps, enabled = providerRequire.value, label = secondsLabel,
-                            ),
-                        )
+                        for ((rule, preference) in providerRules) {
+                            add(switchItem(rule.icon, rule.title, null, preference))
+                        }
+                        providerRules[MatchRule.MatchDuration]?.let { requireDuration ->
+                            add(
+                                sliderItem(
+                                    R.drawable.tune, R.string.lyrics_duration_tolerance, providerTolerance, ToleranceRange,
+                                    ToleranceSteps, enabled = requireDuration.value, label = secondsLabel,
+                                ),
+                            )
+                        }
                     }
                 }
             },

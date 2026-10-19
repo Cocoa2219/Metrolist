@@ -141,8 +141,9 @@ object LrcLib {
         duration: Int,
         album: String? = null,
         tolerance: Int = 5,
+        skipTrack: (trackName: String) -> Boolean = { false },
     ) = runCatching {
-        val tracks = queryLyrics(artist, title, album)
+        val tracks = queryLyrics(artist, title, album).filterNot { skipTrack(it.trackName) }
         val cleanedTitle = cleanTitle(title)
         val cleanedArtist = cleanArtist(artist)
 
@@ -174,8 +175,9 @@ object LrcLib {
         album: String? = null,
         callback: (String) -> Unit,
         tolerance: Int = 5,
+        skipTrack: (trackName: String) -> Boolean = { false },
     ) {
-        val tracks = queryLyrics(artist, title, album)
+        val tracks = queryLyrics(artist, title, album).filterNot { skipTrack(it.trackName) }
         val cleanedTitle = cleanTitle(title)
         val cleanedArtist = cleanArtist(artist)
         var count = 0

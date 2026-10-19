@@ -95,13 +95,16 @@ val EnableUnisonKey = booleanPreferencesKey("enableUnison")
 val EnableLrcMuxKey = booleanPreferencesKey("enableLrcMux")
 val EnableLrcRedKey = booleanPreferencesKey("enableLrcRed")
 
-// How lyrics search results must match the song; providers can override the global rule.
-val LyricsRequireDurationMatchKey = booleanPreferencesKey("lyricsRequireDurationMatch")
-val LyricsDurationToleranceKey = floatPreferencesKey("lyricsDurationTolerance")
+// How lyrics search results must match the song; providers can override the global rules.
+fun lyricsMatchRuleKey(rule: String, provider: String? = null) =
+    booleanPreferencesKey(if (provider == null) "lyrics$rule" else "lyrics${rule}_$provider")
+fun lyricsDurationToleranceKey(provider: String? = null) =
+    floatPreferencesKey(if (provider == null) "lyricsDurationTolerance" else "lyricsDurationTolerance_$provider")
 const val LyricsDurationToleranceDefault = 5f
 fun lyricsMatchOverrideKey(provider: String) = booleanPreferencesKey("lyricsMatchOverride_$provider")
-fun lyricsRequireDurationMatchKey(provider: String) = booleanPreferencesKey("lyricsRequireDurationMatch_$provider")
-fun lyricsDurationToleranceKey(provider: String) = floatPreferencesKey("lyricsDurationTolerance_$provider")
+val LyricsEnglishNameRetryKey = booleanPreferencesKey("lyricsEnglishNameRetry")
+val LyricsTitlePartSearchKey = booleanPreferencesKey("lyricsTitlePartSearch")
+val LyricsAlbumFallbackKey = booleanPreferencesKey("lyricsAlbumFallback")
 val HideExplicitKey = booleanPreferencesKey("hideExplicit")
 val HideVideoSongsKey = booleanPreferencesKey("hideVideoSongs")
 val HideYoutubeShortsKey = booleanPreferencesKey("hideYoutubeShorts")

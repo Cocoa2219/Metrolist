@@ -1061,9 +1061,22 @@
     <string name="lyrics_matching_all_providers">All providers</string>
     <string name="lyrics_matching_per_provider">Per provider</string>
     <string name="lyrics_matching_uses_global">Uses the rule for all providers</string>
-    <string name="lyrics_matching_any_duration">Any duration</string>
+    <string name="lyrics_matching_custom">Uses its own rules</string>
+    <string name="lyrics_match_exact_title">Require exact title</string>
+    <string name="lyrics_match_exact_title_desc">Off also accepts a title containing the song\'s, like one with a featured artist</string>
+    <string name="lyrics_match_artist">Require artist match</string>
+    <string name="lyrics_match_artist_desc">Skip results by none of the song\'s artists</string>
+    <string name="lyrics_skip_other_versions">Skip other versions</string>
+    <string name="lyrics_skip_other_versions_desc">Skip live, remix, acoustic, instrumental and similar versions the song\'s title doesn\'t name</string>
     <string name="lyrics_require_duration">Require duration match</string>
     <string name="lyrics_require_duration_desc">Skip results whose length differs from the song by more than the tolerance</string>
     <string name="lyrics_duration_tolerance">Duration tolerance</string>
     <string name="lyrics_duration_tolerance_value">±%d s</string>
+    <string name="lyrics_search_strategies">Search</string>
+    <string name="lyrics_english_name_retry">Retry with English names</string>
+    <string name="lyrics_english_name_retry_desc">Search again under the song\'s English title and artist when nothing matches (LrcRed, Paxsenix)</string>
+    <string name="lyrics_title_part_search">Search title parts</string>
+    <string name="lyrics_title_part_search_desc">Search each side of titles like \"Original - Romanized\" (LrcRed)</string>
+    <string name="lyrics_album_fallback">Album fallback</string>
+    <string name="lyrics_album_fallback_desc">Look through the album\'s tracks when the title search misses (LrcRed)</string>
 </resources>
