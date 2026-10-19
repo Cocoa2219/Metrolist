@@ -67,6 +67,15 @@ private fun matchKey(text: String) =
 
 private fun sameTitle(title: String, candidate: String) = matchKey(title) == matchKey(candidate)
 
+/** An exact title, or with [exact] off, one title containing the other ("Song" and "Song (feat. X)"). */
+private fun titleFits(title: String, candidate: String, exact: Boolean): Boolean {
+    if (sameTitle(title, candidate)) return true
+    if (exact) return false
+    val a = matchKey(title)
+    val b = matchKey(candidate)
+    return a.isNotEmpty() && b.isNotEmpty() && (a in b || b in a)
+}
+
 /** [artists] is Metrolist's "A, B" list; one shared artist is enough. */
 private fun sharesArtist(artists: String, candidate: String): Boolean {
     val wanted = artists.split(",", "&").map(::matchKey).filter(String::isNotEmpty)
@@ -92,10 +101,13 @@ object AmllLyricsProvider : LyricsProvider {
             parameter("trackName", title)
             parameter("artistName", artist)
         }?.get("data")?.jsonObject?.get("items")?.jsonArray.orEmpty()
-        // The search is fuzzy (an artist's other songs come back too), so only an exact title counts.
+        // The search is fuzzy (an artist's other songs come back too), so the title has to fit.
+        val rules = context.matchRules(name)
         val match = items.map { it.jsonObject }.firstOrNull { item ->
-            item["musicNames"].strings().any { sameTitle(title, it) } &&
-                item["artistNames"].strings().any { sharesArtist(artist, it) }
+            val names = item["musicNames"].strings()
+            names.any { titleFits(title, it, rules.exactTitle) } &&
+                names.none { rules.rejectsVersion(title, it) } &&
+                (!rules.matchArtist || item["artistNames"].strings().any { sharesArtist(artist, it) })
         } ?: error("Lyrics unavailable")
         val ttml = getJson("$BASE/get") { parameter("id", match["id"].string()) }
             ?.get("data")?.jsonObject?.get("lyrics").string()
@@ -182,16 +194,17 @@ object LrcRedLyricsProvider : LyricsProvider {
         context: Context, id: String, title: String, artist: String, duration: Int, album: String?,
     ): Result<String> = runCatching {
         Timber.tag(TAG).d("Looking up '$title' by '$artist' (album='$album', duration=${duration}s, video=$id)")
-        val match = context.durationMatch(name)
-        val isrc = findIsrc(title, artist, album, duration, match)
+        val rules = context.matchRules(name)
+        val options = context.lyricsSearchOptions()
+        val isrc = findIsrc(title, artist, album, duration, rules, options)
             ?: run {
-                val english = EnglishSongNames.get(id, title, artist)
+                val english = if (options.englishNames) EnglishSongNames.get(id, title, artist) else null
                 if (english == null) {
-                    Timber.tag(TAG).d("No English names differ from the original; giving up")
+                    Timber.tag(TAG).d("No English names to retry with; giving up")
                     null
                 } else {
                     Timber.tag(TAG).d("Retrying with English names: '${english.title}' by '${english.artist}' (album='${english.album}')")
-                    findIsrc(english.title, english.artist, english.album ?: album, duration, match)
+                    findIsrc(english.title, english.artist, english.album ?: album, duration, rules, options)
                 }
             }
             ?: error("Lyrics unavailable")
@@ -221,17 +234,19 @@ object LrcRedLyricsProvider : LyricsProvider {
      * only the exact album counts there, since a live album repeats the songs at similar lengths.
      */
     private suspend fun findIsrc(
-        title: String, artist: String, album: String?, duration: Int, match: DurationMatch,
+        title: String, artist: String, album: String?, duration: Int, rules: MatchRules, options: SearchOptions,
     ): String? {
+        val match = rules.duration
         /** Why a hit does not fit, or null when it does. */
         fun JsonObject.mismatch(wanted: String?, requireArtist: Boolean): String? {
             val hitTitle = this["title"].string().orEmpty()
             val hitArtist = this["artist"].string().orEmpty()
             val hitDuration = this["duration"]?.jsonPrimitive?.doubleOrNull
             return when {
-                wanted != null && !sameTitle(wanted, hitTitle) -> "title '$hitTitle'"
+                wanted != null && !titleFits(wanted, hitTitle, rules.exactTitle) -> "title '$hitTitle'"
                 wanted == null && matchKey(album.orEmpty()) != matchKey(this["album"].string().orEmpty()) -> "album '${this["album"].string()}'"
-                requireArtist && !sharesArtist(artist, hitArtist) -> "artist '$hitArtist'"
+                rules.rejectsVersion(wanted ?: title, hitTitle) -> "other version '$hitTitle'"
+                requireArtist && rules.matchArtist && !sharesArtist(artist, hitArtist) -> "artist '$hitArtist'"
                 // Without the artist, the length is what tells the song from others of its name.
                 !requireArtist && (!match.required || duration <= 0 || hitDuration == null) -> "no duration to compare"
                 !match.accepts(duration, hitDuration) -> "duration ${hitDuration}s"
@@ -254,15 +269,15 @@ object LrcRedLyricsProvider : LyricsProvider {
         }
         pick("Title", "$title $artist", title)?.let { return it }
         val parts = title.split(TITLE_PARTS).map(String::trim).filter(String::isNotEmpty)
-        if (parts.size > 1) {
+        if (options.titleParts && parts.size > 1) {
             for (part in parts) {
                 pick("Title part", "$part $artist", part)?.let { return it }
                 // An artist in a script lrc.red does not index makes the whole query miss.
                 pick("Title part alone", part, part, requireArtist = false)?.let { return it }
             }
         }
-        if (album.isNullOrBlank()) {
-            Timber.tag(TAG).d("No album to fall back on")
+        if (!options.albumFallback || album.isNullOrBlank()) {
+            Timber.tag(TAG).d("No album fallback")
             return null
         }
         return pick("Album", "$artist $album", wanted = null)
