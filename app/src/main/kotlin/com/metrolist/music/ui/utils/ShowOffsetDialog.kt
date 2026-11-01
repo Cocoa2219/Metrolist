@@ -2,6 +2,7 @@ package com.metrolist.music.ui.utils
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,10 +13,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
@@ -43,10 +43,8 @@ import com.metrolist.music.LocalDatabase
 import com.metrolist.music.R
 import com.metrolist.music.db.entities.SongEntity
 import kotlinx.coroutines.delay
-import kotlin.math.roundToInt
 
 private const val MAX_OFFSET_MS = 15_000
-private const val STEP_MS = 50
 
 @Composable
 fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
@@ -65,7 +63,7 @@ fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
         song?.let { setOffset(it.lyricsOffset) }
     }
 
-    // Restarted on every change, so the delay debounces DB writes while dragging the slider.
+    // Restarted on every change, so the delay debounces DB writes during rapid taps.
     LaunchedEffect(lyricsOffset) {
         delay(300)
         songProvider()?.takeIf { it.lyricsOffset != lyricsOffset }?.let {
@@ -148,57 +146,19 @@ fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
         Spacer(modifier = Modifier.height(16.dp))
 
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             modifier = Modifier.fillMaxWidth()
         ) {
-            FilledTonalIconButton(
-                onClick = { setOffset(lyricsOffset - STEP_MS) },
-                enabled = lyricsOffset > -MAX_OFFSET_MS
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.remove),
-                    contentDescription = "-${STEP_MS}ms"
-                )
+            listOf(-1000 to "-1s", -100 to "-0.1s", 100 to "+0.1s", 1000 to "+1s").forEach { (delta, label) ->
+                FilledTonalButton(
+                    onClick = { setOffset(lyricsOffset + delta) },
+                    enabled = if (delta < 0) lyricsOffset > -MAX_OFFSET_MS else lyricsOffset < MAX_OFFSET_MS,
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(label)
+                }
             }
-
-            Spacer(Modifier.width(8.dp))
-
-            Slider(
-                value = lyricsOffset.toFloat(),
-                onValueChange = { setOffset((it / STEP_MS).roundToInt() * STEP_MS) },
-                valueRange = -MAX_OFFSET_MS.toFloat()..MAX_OFFSET_MS.toFloat(),
-                modifier = Modifier.weight(1f)
-            )
-
-            Spacer(Modifier.width(8.dp))
-
-            FilledTonalIconButton(
-                onClick = { setOffset(lyricsOffset + STEP_MS) },
-                enabled = lyricsOffset < MAX_OFFSET_MS
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.add),
-                    contentDescription = "+${STEP_MS}ms"
-                )
-            }
-        }
-
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 56.dp)
-        ) {
-            Text(
-                text = "-${MAX_OFFSET_MS}ms",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = "+${MAX_OFFSET_MS}ms",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
 
         Spacer(modifier = Modifier.height(8.dp))
