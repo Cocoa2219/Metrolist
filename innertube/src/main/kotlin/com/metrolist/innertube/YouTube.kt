@@ -82,7 +82,7 @@ import timber.log.Timber
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.net.Proxy
-import kotlin.random.Random
+import kotlinx.coroutines.CancellationException
 
 /**
  * Parse useful data with [InnerTube] sending requests.
@@ -2871,25 +2871,17 @@ object YouTube {
         }
 
     suspend fun registerPlayback(
-        playlistId: String? = null,
-        playbackTracking: String,
+        videoId: String,
+        clientPlaybackNonce: String,
+        isHistoryEnabled: () -> Boolean,
     ) = runCatching {
-        val cpn =
-            (1..16)
-                .map {
-                    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"[
-                        Random.Default.nextInt(
-                            0,
-                            64,
-                        ),
-                    ]
-                }.joinToString("")
-
         innerTube.registerPlayback(
-            url = playbackTracking,
-            playlistId = playlistId,
-            cpn = cpn,
+            videoId = videoId,
+            isHistoryEnabled = isHistoryEnabled,
+            cpn = clientPlaybackNonce,
         )
+    }.onFailure {
+        if (it is CancellationException) throw it
     }
 
     /** The song as YouTube Music lists it in English, for catalogs that use English names. */

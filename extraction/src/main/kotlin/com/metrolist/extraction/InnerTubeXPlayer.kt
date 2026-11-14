@@ -77,13 +77,15 @@ object InnerTubeXPlayer {
             val excludedClients = failedStreamClients(videoId)
             val stream =
                 requireNotNull(
-                    bundle().extractor.extract(
-                        videoId = videoId,
-                        hints = hints,
-                        excludedClients = excludedClients,
-                        audioQuality = audioQuality,
-                        clientPlaybackNonce = generateClientPlaybackNonce(),
-                    ),
+                    resolveWithClientFallback(excludedClients) { clients, useLowQuality ->
+                        bundle().extractor.extract(
+                            videoId = videoId,
+                            hints = hints,
+                            excludedClients = clients,
+                            audioQuality = if (useLowQuality) InnerTubeXAudioQuality.LOW else audioQuality,
+                            clientPlaybackNonce = generateClientPlaybackNonce(),
+                        )
+                    },
                 ) { "InnerTubeX returned no playable stream" }
             check(stream.sabrBootstrap == null) { "SABR is not supported by this playback engine" }
             Result.success(stream.toPlaybackData())
@@ -114,6 +116,25 @@ object InnerTubeXPlayer {
 
     fun clearStreamClientFailures() {
         streamClientFailures.clear()
+    }
+
+    internal suspend fun <T : Any> resolveWithClientFallback(
+        excludedClients: Set<String>,
+        extract: suspend (Set<String>, Boolean) -> T?,
+    ): T? {
+        if (excludedClients.isEmpty()) return extract(emptySet(), false)
+
+        val alternative =
+            try {
+                extract(excludedClients, false)
+            } catch (error: StreamResolveException) {
+                if (error.reason != StreamResolveException.Reason.NO_PLAYABLE_STREAM) throw error
+                null
+            }
+        if (alternative != null) return alternative
+
+        Timber.tag(TAG).w("Alternate stream clients exhausted; retrying all clients at low quality")
+        return extract(emptySet(), true)
     }
 
     suspend fun refreshAfterStreamRejection(): Boolean = bundle().cipherService.refreshAfterStreamRejection()
