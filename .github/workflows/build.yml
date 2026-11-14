@@ -62,7 +62,7 @@ jobs:
       - name: Build Release APK
         run: ./gradlew --console=plain assemble${{ matrix.variantName }}Release --warning-mode summary
         env:
-          METROLIST_APPLICATION_ID: com.metrolist.music
+          METROLIST_APPLICATION_ID: com.metrolist.music.legacy
           METROLIST_APP_NAME: Metrolist Nightly
           METROLIST_BUILD_COMMIT: ${{ github.sha }}
           PULL_REQUEST: "false"
@@ -141,7 +141,7 @@ jobs:
       - name: Build Debug APK
         run: ./gradlew --console=plain assemble${{ matrix.variantName }}Debug --warning-mode summary
         env:
-          METROLIST_APPLICATION_ID: com.metrolist.music
+          METROLIST_APPLICATION_ID: com.metrolist.music.legacy
           METROLIST_APP_NAME: Metrolist Nightly
           METROLIST_BUILD_COMMIT: ${{ github.sha }}
           PULL_REQUEST: "false"
