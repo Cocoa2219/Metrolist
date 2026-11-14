@@ -45,6 +45,11 @@ android {
         compose = true
     }
 
+    androidResources {
+        // Romanization dictionaries are memory-mapped straight from the APK, which needs them stored, as in the phone app.
+        noCompress += "lpd"
+    }
+
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_21
@@ -86,6 +91,9 @@ androidComponents {
 
 dependencies {
     implementation(project(":extraction"))
+    implementation(project(":lyrics"))
+    // Romanization data for Japanese only; the phone app also ships Mandarin and Cantonese.
+    implementation(libs.accompanist.lyrics.phonetics.data.japanese)
     implementation(libs.activity)
     implementation(libs.compose.foundation)
     implementation(libs.wear.compose.foundation)

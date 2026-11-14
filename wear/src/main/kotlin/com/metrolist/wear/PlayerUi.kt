@@ -17,6 +17,13 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.unit.dp
+import kotlin.math.abs
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.fillMaxSize
@@ -304,6 +311,32 @@ fun rememberVolumeState(): VolumeState {
     val context = LocalContext.current
     return remember(context) { VolumeState(context) }
 }
+
+/**
+ * Calls [onSwipe] for a mostly horizontal leftward swipe. Nothing is consumed until the swipe qualifies, so right
+ * swipes stay with swipe-to-exit and vertical ones with the pager.
+ */
+fun Modifier.onSwipeLeft(onSwipe: () -> Unit): Modifier =
+    pointerInput(onSwipe) {
+        val distance = 48.dp.toPx()
+        awaitEachGesture {
+            val down = awaitFirstDown(requireUnconsumed = false)
+            var travel = Offset.Zero
+            while (true) {
+                val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                if (!change.pressed || change.isConsumed) break
+                travel += change.positionChange()
+                when {
+                    travel.x < -distance && abs(travel.x) > abs(travel.y) * 1.5f -> {
+                        change.consume()
+                        onSwipe()
+                        break
+                    }
+                    travel.x > viewConfiguration.touchSlop || abs(travel.y) > distance -> break
+                }
+            }
+        }
+    }
 
 /** Bezel → volume on the page that currently has focus in the pager. */
 fun Modifier.rotaryVolume(

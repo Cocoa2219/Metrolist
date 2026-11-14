@@ -23,11 +23,15 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.lifecycle.Lifecycle
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import androidx.navigation.NavHostController
 import androidx.wear.ambient.AmbientLifecycleObserver
 import androidx.wear.compose.foundation.BasicSwipeToDismissBox
+import androidx.wear.compose.foundation.SwipeToDismissValue
+import androidx.wear.compose.foundation.rememberSwipeToDismissBoxState
 import androidx.wear.compose.foundation.lazy.TransformingLazyColumnState
 import androidx.wear.compose.foundation.lazy.rememberTransformingLazyColumnState
 import androidx.wear.compose.foundation.pager.PagerState
@@ -37,9 +41,11 @@ import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.VerticalPagerScaffold
 import androidx.wear.compose.navigation.SwipeDismissableNavHost
 import androidx.wear.compose.navigation.composable
+import androidx.wear.compose.navigation.currentBackStackEntryAsState
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
@@ -47,6 +53,9 @@ private const val PAGE_ARTWORK = 0
 private const val PAGE_PLAYER = 1
 private const val PAGE_HOME = 2
 private const val ROUTE_MAIN = "main"
+private const val ROUTE_LYRICS = "lyrics"
+private const val ROUTE_LYRICS_MENU = "lyrics/menu"
+private const val ROUTE_LYRICS_SOURCES = "lyrics/sources"
 private const val PLAYER_DIM = 0.55f
 private const val ARRIVE_FADE_MS = 250
 private const val LEAVE_FADE_FRACTION = 0.35f
@@ -82,20 +91,47 @@ class MainActivity : ComponentActivity() {
         lifecycle.addObserver(ambientObserver)
         setContent {
             var exiting by remember { mutableStateOf(false) }
+            val navController = rememberSwipeDismissableNavController()
+            val backStackEntry by navController.currentBackStackEntryAsState()
+            val atRoot = backStackEntry?.destination?.route.let { it == null || it == ROUTE_MAIN }
+            val swipeState = rememberSwipeToDismissBoxState()
+            LaunchedEffect(swipeState.currentValue) {
+                if (swipeState.currentValue == SwipeToDismissValue.Dismissed) {
+                    if (atRoot) {
+                        exiting = true
+                        exitAfterSwipe()
+                    } else {
+                        navController.popBackStack()
+                        // Keep the outgoing screen offscreen until the nav host finishes its pop animation.
+                        navController.currentBackStackEntry?.lifecycle?.currentStateFlow?.first {
+                            it == Lifecycle.State.RESUMED
+                        }
+                        swipeState.snapTo(SwipeToDismissValue.Default)
+                    }
+                }
+            }
             MetrolistWearTheme {
-                // Swipe-right-to-exit is done here (the window's is off in the theme) so it yields to drags the app
-                // has claimed, like the seek dot. It wraps the scaffold so the black background leaves with the app,
-                // revealing what's underneath the translucent window, and once dismissed nothing is drawn again:
-                // the box resetting would otherwise flash the app back as an afterimage while the window closes.
+                // Swipe-right is done here because the window's is off in the theme, so it yields to drags the app
+                // has claimed, like the seek dot. That also turns off the nav host's swipe-back on Wear OS 6, where
+                // it rides on the window's gesture, so this box goes back a screen too.
+                // At the root it exits: it wraps the scaffold so the black background leaves with the app, revealing
+                // what's underneath the translucent window, and once dismissed nothing is drawn again: the box
+                // resetting would otherwise flash the app back as an afterimage while the window closes.
                 if (!exiting) {
                     BasicSwipeToDismissBox(
-                        onDismissed = {
-                            exiting = true
-                            exitAfterSwipe()
-                        },
+                        state = swipeState,
                     ) { isBackground ->
                         if (!isBackground) {
-                            AppScaffold { WearNavigation(app, controller, ambientDetails, ambientMinute) }
+                            AppScaffold { WearNavigation(app, controller, navController, ambientDetails, ambientMinute) }
+                        } else if (!atRoot || swipeState.currentValue == SwipeToDismissValue.Dismissed) {
+                            // Every screen sits on the song's artwork, so it stands in for the one being returned to.
+                            ArtworkBackground(
+                                controller?.mediaMetadata?.artworkUri,
+                                dim = { PLAYER_DIM },
+                                vignette = { 1f },
+                                textScrim = { 0f },
+                                blackout = { 0f },
+                            )
                         }
                     }
                 }
@@ -139,6 +175,7 @@ class MainActivity : ComponentActivity() {
 private fun WearNavigation(
     app: WearApp,
     player: Player?,
+    navController: NavHostController,
     ambient: AmbientLifecycleObserver.AmbientDetails?,
     ambientMinute: Int,
 ) {
@@ -146,7 +183,6 @@ private fun WearNavigation(
     val likedSongs by app.likedSongs.collectAsState()
     val nowPlaying = rememberNowPlaying(player)
     val liked = nowPlaying.mediaId in likedSongs
-    val navController = rememberSwipeDismissableNavController()
     val pagerState = rememberPagerState(initialPage = PAGE_PLAYER) { 3 }
     val scope = rememberCoroutineScope()
     val haptics = rememberHaptics()
@@ -203,6 +239,7 @@ private fun WearNavigation(
                             onLikedChange = { nowPlaying.mediaId?.let { id -> app.setLiked(id, it) } },
                             volume = volume,
                             haptics = haptics,
+                            onOpenLyrics = { navController.navigate(ROUTE_LYRICS) },
                         )
                     PAGE_HOME ->
                         HomePage(
@@ -222,6 +259,18 @@ private fun WearNavigation(
                         )
                 }
             }
+        }
+        composable(ROUTE_LYRICS) {
+            val nowPlaying = currentNowPlaying
+            LyricsScreen(currentPlayer, nowPlaying, rememberArtworkAccent(nowPlaying.artworkUri), app.lyrics, haptics) {
+                navController.navigate(ROUTE_LYRICS_MENU)
+            }
+        }
+        composable(ROUTE_LYRICS_MENU) {
+            LyricsMenu(currentNowPlaying, app.lyrics, haptics) { navController.navigate(ROUTE_LYRICS_SOURCES) }
+        }
+        composable(ROUTE_LYRICS_SOURCES) {
+            LyricsSources(currentNowPlaying, app.lyrics, haptics) { navController.popBackStack(ROUTE_LYRICS, inclusive = false) }
         }
     }
 }

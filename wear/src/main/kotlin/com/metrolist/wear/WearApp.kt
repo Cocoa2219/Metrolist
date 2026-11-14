@@ -12,6 +12,8 @@ import com.metrolist.extraction.InnerTubeXPlayer
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.YouTubeLocale
 import com.metrolist.innertube.utils.completed
+import com.metrolist.music.lyrics.LyricsPhonetics
+import com.mocharealm.accompanist.lyrics.phonetics.data.JapaneseData
 import com.metrolist.innertubex.extraction.PoTokenResult
 import com.metrolist.innertubex.extraction.TokenProvider
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +50,8 @@ class WearApp : Application() {
     private val accountLock = Mutex()
     private val _account = MutableStateFlow<AccountState>(AccountState.Loading)
     val account: StateFlow<AccountState> = _account
+
+    val lyrics by lazy { LyricsStore(this, scope) }
 
     // innertube has no per-song like status, so membership in the Liked songs playlist stands in for it.
     private val _likedSongs = MutableStateFlow<Set<String>>(emptySet())
@@ -90,6 +94,7 @@ class WearApp : Application() {
         Timber.plant(Timber.DebugTree())
         // A watch has no WebView, so no BotGuard PoTokens; Phase 0 showed playback works without them.
         InnerTubeXPlayer.initialize(this, NoTokenProvider)
+        LyricsPhonetics.initialize(this) { packs -> listOf(JapaneseData.japanese(packs)) }
         val locale = Locale.getDefault()
         YouTube.locale = YouTubeLocale(gl = locale.country.ifEmpty { "US" }, hl = locale.language)
         YouTube.useLoginForBrowse = true

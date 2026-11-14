@@ -153,6 +153,7 @@ fun PlayerPage(
     onLikedChange: (Boolean) -> Unit,
     volume: VolumeState,
     haptics: Haptics,
+    onOpenLyrics: () -> Unit,
 ) {
     val position = rememberPositionMs(player, nowPlaying)
     val duration = nowPlaying.durationMs
@@ -164,13 +165,15 @@ fun PlayerPage(
         label = "seekExpand",
     )
 
-    BoxWithConstraints(Modifier.fillMaxSize().rotaryVolume(volume, haptics)) {
+    // Lyrics live to the right of the player: a left swipe opens them, the usual right swipe comes back.
+    BoxWithConstraints(Modifier.fillMaxSize().rotaryVolume(volume, haptics).onSwipeLeft(onOpenLyrics)) {
         val density = LocalDensity.current
         val smallRadius = PlayButtonSize / 2 + RingGap
         val largeRadius = min(maxWidth.value, maxHeight.value).dp / 2 * 0.52f
         val seekGesture =
             Modifier.seekGesture(
                 player = player,
+                mediaId = nowPlaying.mediaId,
                 durationMs = duration,
                 progress = progress,
                 ringRadiusPx = with(density) { smallRadius.toPx() },
@@ -347,6 +350,7 @@ fun Player.togglePlayback() {
  */
 private fun Modifier.seekGesture(
     player: Player?,
+    mediaId: String?,
     durationMs: Long,
     progress: Float,
     ringRadiusPx: Float,
@@ -357,7 +361,7 @@ private fun Modifier.seekGesture(
 ): Modifier =
     composed {
         val currentProgress by rememberUpdatedState(progress)
-        pointerInput(player, durationMs) {
+        pointerInput(player, mediaId, durationMs) {
             if (player == null || durationMs <= 0) return@pointerInput
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -370,20 +374,23 @@ private fun Modifier.seekGesture(
                 haptics.click()
                 var previous = start
                 onTargetChange(start)
-                while (true) {
-                    val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
-                    change.consume()
-                    if (!change.pressed) break
-                    val target = angleFraction(change.position - center)
-                    if (crossesTop(previous, target) || crossesPoint(previous, target, start)) haptics.tick()
-                    previous = target
-                    onTargetChange(target)
+                try {
+                    while (true) {
+                        val change = awaitPointerEvent(PointerEventPass.Initial).changes.firstOrNull { it.id == down.id } ?: break
+                        change.consume()
+                        if (!change.pressed) break
+                        val target = angleFraction(change.position - center)
+                        if (crossesTop(previous, target) || crossesPoint(previous, target, start)) haptics.tick()
+                        previous = target
+                        onTargetChange(target)
+                    }
+                    // Landing exactly on 12 o'clock after wrapping would mean "end", which skips the song.
+                    val seekMs = (previous * durationMs).toLong().coerceAtMost(durationMs - 1_000).coerceAtLeast(0)
+                    player.seekTo(seekMs)
+                    onSeek(seekMs)
+                } finally {
+                    onTargetChange(null)
                 }
-                // Landing exactly on 12 o'clock after wrapping would mean "end", which skips the song.
-                val seekMs = (previous * durationMs).toLong().coerceAtMost(durationMs - 1_000).coerceAtLeast(0)
-                player.seekTo(seekMs)
-                onSeek(seekMs)
-                onTargetChange(null)
             }
         }
     }
