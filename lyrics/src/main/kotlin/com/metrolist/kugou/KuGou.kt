@@ -51,21 +51,24 @@ private const val HEAD_CUT_LIMIT = 30
 object KuGou {
     var useTraditionalChinese: Boolean = false
 
-    suspend fun getLyrics(title: String, artist: String, duration: Int, album: String? = null): Result<String> =
+    suspend fun getLyrics(
+        title: String, artist: String, duration: Int, album: String? = null, tolerance: Int = DURATION_TOLERANCE,
+    ): Result<String> =
         runCatching {
             val keyword = generateKeyword(title, artist, album)
-            getLyricsCandidate(keyword, duration)?.let { candidate ->
+            getLyricsCandidate(keyword, duration, tolerance)?.let { candidate ->
                 Base64.Default.decode(downloadLyrics(candidate.id, candidate.accesskey).content).decodeToString()
                     .normalize()
             } ?: throw IllegalStateException("No lyrics candidate")
         }
 
     suspend fun getAllPossibleLyricsOptions(
-        title: String, artist: String, duration: Int, album: String? = null, callback: (String) -> Unit
+        title: String, artist: String, duration: Int, album: String? = null, callback: (String) -> Unit,
+        tolerance: Int = DURATION_TOLERANCE,
     ) {
         val keyword = generateKeyword(title, artist, album)
         searchSongs(keyword).data.info.forEach {
-            if (duration == -1 || abs(it.duration - duration) <= DURATION_TOLERANCE) {
+            if (duration == -1 || abs(it.duration - duration) <= tolerance) {
                 searchLyricsByHash(it.hash).candidates.firstOrNull()?.let { candidate ->
                     Base64.Default.decode(downloadLyrics(candidate.id, candidate.accesskey).content).decodeToString()
                         .normalize().let(callback)
@@ -79,10 +82,10 @@ object KuGou {
     }
 
     suspend fun getLyricsCandidate(
-        keyword: Keyword, duration: Int
+        keyword: Keyword, duration: Int, tolerance: Int = DURATION_TOLERANCE,
     ): SearchLyricsResponse.Candidate? {
         searchSongs(keyword).data.info.forEach { song ->
-            if (duration == -1 || abs(song.duration - duration) <= DURATION_TOLERANCE) { // if duration == -1, we don't care duration
+            if (duration == -1 || abs(song.duration - duration) <= tolerance) { // if duration == -1, we don't care duration
                 val candidate = searchLyricsByHash(song.hash).candidates.firstOrNull()
                 if (candidate != null) return candidate
             }

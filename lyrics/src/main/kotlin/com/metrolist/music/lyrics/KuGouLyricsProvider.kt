@@ -18,8 +18,10 @@ object KuGouLyricsProvider : LyricsProvider {
         artist: String,
         duration: Int,
         album: String?,
-    ): Result<String> =
-        KuGou.getLyrics(title, artist, duration, album)
+    ): Result<String> {
+        val match = context.durationMatch(name)
+        return KuGou.getLyrics(title, artist, match.durationFor(duration), album, match.toleranceSeconds)
+    }
 
     override suspend fun getAllLyrics(
         context: Context,
@@ -30,6 +32,7 @@ object KuGouLyricsProvider : LyricsProvider {
         album: String?,
         callback: (String) -> Unit,
     ) {
-        KuGou.getAllPossibleLyricsOptions(title, artist, duration, album, callback)
+        val match = context.durationMatch(name)
+        KuGou.getAllPossibleLyricsOptions(title, artist, match.durationFor(duration), album, callback, match.toleranceSeconds)
     }
 }

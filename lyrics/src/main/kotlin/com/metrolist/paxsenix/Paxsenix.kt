@@ -28,6 +28,18 @@ import java.net.URLEncoder
 import java.util.Locale
 import kotlin.math.abs
 
+/**
+ * Which search results may count as the song. [rejectsTitle] drops results by title, e.g. other
+ * versions of it.
+ */
+data class ResultFilter(
+    val requireDuration: Boolean = true,
+    val toleranceSeconds: Int = 10,
+    val exactTitle: Boolean = false,
+    val matchArtist: Boolean = false,
+    val rejectsTitle: (String) -> Boolean = { false },
+)
+
 object Paxsenix {
     @Volatile
     private var client: HttpClient? = null
@@ -188,6 +200,7 @@ object Paxsenix {
         artist: String,
         duration: Int,
         album: String? = null,
+        filter: ResultFilter = ResultFilter(),
     ): Result<String> = runCatching {
         val cleanedTitle = cleanTitle(title)
         val cleanedArtist = cleanArtist(artist)
@@ -212,7 +225,7 @@ object Paxsenix {
                 val searchResults = search(query)
                 
                 if (searchResults.isNotEmpty()) {
-                    allResults = scoreAndFilterResults(searchResults, title, artist, duration)
+                    allResults = scoreAndFilterResults(searchResults, title, artist, duration, filter)
                 }
             }
         }
@@ -269,9 +282,9 @@ object Paxsenix {
         results: List<SearchResult>,
         title: String,
         artist: String,
-        duration: Int
+        duration: Int,
+        filter: ResultFilter,
     ): List<Pair<SearchResult, Double>> {
-        val durationMs = duration * 1000
         val cleanupRegex = Regex("""\s*\(.*?\)|\s*\[.*?\]""")
         
         // Cleaned versions for fuzzy matching
@@ -282,19 +295,21 @@ object Paxsenix {
         val targetIsMixed = title.contains("mixed", ignoreCase = true)
         val targetIsRemix = title.contains("remix", ignoreCase = true)
         
-        return results.map { result ->
+        return results.mapNotNull { result ->
             var score = 0.0
             
             val resultTitle = result.displayName
             val resultArtist = result.displayArtist
+            if (filter.rejectsTitle(resultTitle)) return@mapNotNull null
             
-            result.duration?.let { d ->
-                val diff = abs(d - durationMs)
+            // Result durations are in seconds, like the song's.
+            val closeLength = result.duration?.let { duration > 0 && abs(it - duration) <= 2 } == true
+            result.duration?.takeIf { duration > 0 }?.let { d ->
+                val diff = abs(d - duration)
                 when {
-                    diff <= 2000 -> score += 100 // Excellent match
-                    diff <= 5000 -> score += 50  // Good match
-                    diff <= 10000 -> score += 10 // Acceptable match
-                    else -> score -= 50          // Likely wrong version (Mixed/Edit/etc)
+                    diff <= 2 -> score += 100 // Excellent match
+                    diff <= filter.toleranceSeconds -> score += 50
+                    filter.requireDuration -> return@mapNotNull null // Another version (live, edit, mix)
                 }
             }
             
@@ -302,6 +317,7 @@ object Paxsenix {
             
             when {
                 resultTitleCleaned == cleanedTitle -> score += 80
+                filter.exactTitle -> return@mapNotNull null
                 resultTitleCleaned.contains(cleanedTitle) || cleanedTitle.contains(resultTitleCleaned) -> score += 40
             }
             
@@ -321,6 +337,10 @@ object Paxsenix {
                     val artistWords = targetArtistPrimary.split(Regex("\\s+")).filter { it.length > 2 }
                     if (artistWords.any { resultArtistLower.contains(it) }) {
                         score += 25
+                    } else if (filter.matchArtist && !closeLength) {
+                        // A near-identical length still tells the song apart when Apple lists the
+                        // artist in another script.
+                        return@mapNotNull null
                     }
                 }
             }
@@ -417,6 +437,7 @@ object Paxsenix {
         duration: Int,
         album: String? = null,
         callback: (String) -> Unit,
+        filter: ResultFilter = ResultFilter(),
     ) {
         val cleanedTitle = cleanTitle(title)
         val cleanedArtist = cleanArtist(artist)
@@ -433,7 +454,7 @@ object Paxsenix {
             val results = search(query)
             if (results.isEmpty()) continue
 
-            val filtered = scoreAndFilterResults(results, title, artist, duration)
+            val filtered = scoreAndFilterResults(results, title, artist, duration, filter)
             if (filtered.isNotEmpty()) {
                 scoredResults = filtered
                 break@searchLoop

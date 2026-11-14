@@ -72,6 +72,7 @@ import com.metrolist.music.lyrics.LyricsTranslationHelper
 import com.metrolist.music.lyrics.LyricsUtils
 import com.metrolist.music.lyrics.isTtml
 import com.metrolist.music.lyrics.LyricsQuality
+import com.metrolist.music.lyrics.normalizeIsrc
 import com.metrolist.music.lyrics.StoredTranslation
 import com.metrolist.music.lyrics.TtmlLyrics
 import com.metrolist.music.lyrics.StoredTranslations
@@ -231,6 +232,12 @@ fun LyricsMenu(
             )
         }
 
+    val (isrcField, onIsrcFieldChange) =
+        rememberSaveable(showSearchDialog, stateSaver = TextFieldValue.Saver) {
+            mutableStateOf(TextFieldValue())
+        }
+    val isrc = normalizeIsrc(isrcField.text)
+
     val isNetworkAvailable by viewModel.isNetworkAvailable.collectAsStateWithLifecycle()
 
     if (showSearchDialog) {
@@ -284,7 +291,8 @@ fun LyricsMenu(
                             titleField.text,
                             artistField.text,
                             searchMediaMetadata.duration,
-                            searchMediaMetadata.album?.title
+                            searchMediaMetadata.album?.title,
+                            isrc,
                         )
                         showSearchResultDialog = true
                         
@@ -312,6 +320,24 @@ fun LyricsMenu(
                 onValueChange = onArtistFieldChange,
                 singleLine = true,
                 label = { Text(stringResource(R.string.song_artists)) },
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            OutlinedTextField(
+                value = isrcField,
+                onValueChange = onIsrcFieldChange,
+                singleLine = true,
+                label = { Text(stringResource(R.string.lyrics_search_isrc)) },
+                isError = isrcField.text.isNotBlank() && isrc == null,
+                supportingText = {
+                    Text(
+                        stringResource(
+                            if (isrcField.text.isNotBlank() && isrc == null) R.string.lyrics_search_isrc_invalid
+                            else R.string.lyrics_search_isrc_hint,
+                        ),
+                    )
+                },
             )
         }
     }

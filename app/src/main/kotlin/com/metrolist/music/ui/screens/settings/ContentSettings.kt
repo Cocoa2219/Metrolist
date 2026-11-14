@@ -1028,6 +1028,12 @@ fun ContentSettings(
                     onClick = { showProviderPriorityDialog = true }
                 ),
                 Material3SettingsItem(
+                    icon = painterResource(R.drawable.tune),
+                    title = { Text(stringResource(R.string.lyrics_matching)) },
+                    description = { Text(stringResource(R.string.lyrics_matching_desc)) },
+                    onClick = { navController.navigate("settings/content/lyrics_matching") }
+                ),
+                Material3SettingsItem(
                     icon = painterResource(R.drawable.language_korean_latin),
                     title = { Text(stringResource(R.string.lyrics_romanization)) },
                     onClick = { navController.navigate("settings/content/romanization") }

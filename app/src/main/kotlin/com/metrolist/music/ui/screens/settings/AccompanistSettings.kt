@@ -171,7 +171,7 @@ internal fun sliderItem(
 )
 
 @Composable
-private fun switchItem(
+internal fun switchItem(
     @DrawableRes icon: Int,
     title: Int,
     description: Int?,

@@ -18,7 +18,13 @@ object LrcLibLyricsProvider : LyricsProvider {
         artist: String,
         duration: Int,
         album: String?,
-    ): Result<String> = LrcLib.getLyrics(title, artist, duration, album)
+    ): Result<String> {
+        val rules = context.matchRules(name)
+        val match = rules.duration
+        return LrcLib.getLyrics(title, artist, match.durationFor(duration), album, match.toleranceSeconds) {
+            rules.rejectsVersion(title, it)
+        }
+    }
 
     override suspend fun getAllLyrics(
         context: Context,
@@ -29,6 +35,10 @@ object LrcLibLyricsProvider : LyricsProvider {
         album: String?,
         callback: (String) -> Unit,
     ) {
-        LrcLib.getAllLyrics(title, artist, duration, album, callback)
+        val rules = context.matchRules(name)
+        val match = rules.duration
+        LrcLib.getAllLyrics(title, artist, match.durationFor(duration), album, callback, match.toleranceSeconds) {
+            rules.rejectsVersion(title, it)
+        }
     }
 }

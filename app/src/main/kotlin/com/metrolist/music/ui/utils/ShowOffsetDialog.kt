@@ -2,6 +2,7 @@ package com.metrolist.music.ui.utils
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,11 +13,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
@@ -41,9 +42,10 @@ import androidx.compose.ui.unit.dp
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.R
 import com.metrolist.music.db.entities.SongEntity
-import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 
-@OptIn(FlowPreview::class)
+private const val MAX_OFFSET_MS = 15_000
+
 @Composable
 fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
     val database = LocalDatabase.current
@@ -52,31 +54,24 @@ fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
     var lyricsOffset by rememberSaveable { mutableIntStateOf(song?.lyricsOffset ?: 0) }
     var textFieldValue by rememberSaveable { mutableStateOf(lyricsOffset.toString()) }
 
+    fun setOffset(value: Int) {
+        lyricsOffset = value.coerceIn(-MAX_OFFSET_MS, MAX_OFFSET_MS)
+        textFieldValue = lyricsOffset.toString()
+    }
+
     LaunchedEffect(song?.id) {
-        song?.let {
-            lyricsOffset = it.lyricsOffset
-            textFieldValue = lyricsOffset.toString()
-        }
+        song?.let { setOffset(it.lyricsOffset) }
     }
 
+    // Restarted on every change, so the delay debounces DB writes during rapid taps.
     LaunchedEffect(lyricsOffset) {
-        songProvider()?.let { song ->
-            database.query {
-                upsert(
-                    song.copy(
-                        lyricsOffset = lyricsOffset
-                    )
-                )
-            }
+        delay(300)
+        songProvider()?.takeIf { it.lyricsOffset != lyricsOffset }?.let {
+            database.query { upsert(it.copy(lyricsOffset = lyricsOffset)) }
         }
     }
 
-    fun commitTextFieldValue() {
-        val parsed = textFieldValue.toIntOrNull() ?: 0
-        val clamped = parsed.coerceIn(-9999, 9999)
-        lyricsOffset = clamped
-        textFieldValue = clamped.toString()
-    }
+    fun commitTextFieldValue() = setOffset(textFieldValue.toIntOrNull() ?: 0)
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -109,36 +104,31 @@ fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
             TextField(
                 value = textFieldValue,
                 onValueChange = { newText ->
-                    val sanitized = newText.filter {
-                        it.isDigit() || (it == '-' && newText.indexOf('-') == 0)
-                    }
-
-                    textFieldValue = if (sanitized.startsWith('-')) {
-                        sanitized.take(6)
-                    } else {
-                        sanitized.take(5)
-                    }
+                    val negative = newText.startsWith('-')
+                    val digits = newText.filter { it.isDigit() }.take(MAX_OFFSET_MS.toString().length)
+                    textFieldValue = if (negative) "-$digits" else digits
                 },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.displaySmall.copy(
                     textAlign = TextAlign.Center,
                     fontWeight = FontWeight.Bold
                 ),
+                suffix = {
+                    Text(
+                        text = "ms",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                },
                 modifier = Modifier
-                    .widthIn(min = 140.dp, max = 200.dp)
-                    .onFocusChanged { focusState ->
-                        if (!focusState.isFocused) {
-                            commitTextFieldValue()
-                        }
-                    },
+                    .widthIn(min = 160.dp, max = 240.dp)
+                    .onFocusChanged { if (!it.isFocused) commitTextFieldValue() },
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
                     cursorColor = MaterialTheme.colorScheme.primary,
                     focusedIndicatorColor = MaterialTheme.colorScheme.primary,
                     unfocusedIndicatorColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    disabledIndicatorColor = Color.Transparent,
-                    errorIndicatorColor = MaterialTheme.colorScheme.error
                 ),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Number,
@@ -151,95 +141,39 @@ fun ShowOffsetDialog(songProvider: () -> SongEntity?) {
                     }
                 )
             )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            Text(
-                text = "ms",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontWeight = FontWeight.Medium
-            )
-
-            if (lyricsOffset != 0) {
-                Spacer(Modifier.width(8.dp))
-
-                IconButton(
-                    onClick = {
-                        lyricsOffset = 0
-                        textFieldValue = "0"
-                    }
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.replay),
-                        tint = MaterialTheme.colorScheme.primary,
-                        contentDescription = "Reset"
-                    )
-                }
-            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             modifier = Modifier.fillMaxWidth()
         ) {
-            IconButton(
-                onClick = {
-                    lyricsOffset = (lyricsOffset - 50).coerceIn(-3000, 3000)
-                    textFieldValue = lyricsOffset.toString()
+            listOf(-1000 to "-1s", -100 to "-0.1s", 100 to "+0.1s", 1000 to "+1s").forEach { (delta, label) ->
+                FilledTonalButton(
+                    onClick = { setOffset(lyricsOffset + delta) },
+                    enabled = if (delta < 0) lyricsOffset > -MAX_OFFSET_MS else lyricsOffset < MAX_OFFSET_MS,
+                    contentPadding = PaddingValues(horizontal = 12.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(label)
                 }
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.remove),
-                    contentDescription = "Decrease"
-                )
-            }
-
-            Slider(
-                value = lyricsOffset.toFloat(),
-                onValueChange = { newValue ->
-                    val rounded = (newValue / 100).toInt() * 100
-                    lyricsOffset = rounded
-                    textFieldValue = rounded.toString()
-                },
-                valueRange = -3000f..3000f,
-                steps = 59,
-                modifier = Modifier.weight(1f)
-            )
-
-            IconButton(
-                onClick = {
-                    lyricsOffset = (lyricsOffset + 50).coerceIn(-3000, 3000)
-                    textFieldValue = lyricsOffset.toString()
-                }
-            ) {
-                Icon(
-                    painter = painterResource(R.drawable.add),
-                    contentDescription = "Increase"
-                )
             }
         }
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 48.dp)
+        TextButton(
+            onClick = { setOffset(0) },
+            enabled = lyricsOffset != 0
         ) {
-            Text(
-                text = "-3000ms",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+            Icon(
+                painter = painterResource(R.drawable.replay),
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
             )
-            Text(
-                text = "+3000ms",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.reset))
         }
     }
 }
